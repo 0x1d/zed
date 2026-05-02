@@ -186,3 +186,27 @@ Rules emerge from validated patterns, not one-off observations. The workflow is:
 1. Agent notes a pattern during a session.
 2. Team validates the pattern in code review.
 3. A dedicated commit adds the rule with context on *why* it exists.
+
+## Cursor Cloud specific instructions
+
+### Running the Zed editor
+
+The Cloud VM runs as root, so you must set `ZED_ALLOW_ROOT=true` to launch Zed. The VM has an X11 display at `:1` and uses `mesa-vulkan-drivers` (llvmpipe software renderer) for GPU rendering. To launch Zed:
+
+```sh
+ZED_ALLOW_ROOT=true DISPLAY=:1 WAYLAND_DISPLAY="" /workspace/target/debug/zed
+```
+
+### Building
+
+- `cargo build` builds the default workspace member (`crates/zed`, the editor). A full debug build takes ~12 minutes on the cloud VM.
+- Use `./script/clippy -p <crate>` for focused lint checks (the full workspace clippy with `--release` takes significantly longer).
+- Run tests with `cargo test -p <crate>` for targeted testing.
+
+### System dependencies
+
+System libraries are installed via `script/linux`. The update script handles this automatically; no manual action needed.
+
+### Collab server (optional)
+
+The `collab` backend requires PostgreSQL. It is NOT required for editor development. See `crates/collab/README.md` and `script/bootstrap` for setup details if needed.
