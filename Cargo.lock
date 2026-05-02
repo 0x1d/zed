@@ -7982,6 +7982,7 @@ dependencies = [
  "gpui_flow",
  "petgraph",
  "ui",
+ "util",
  "workspace",
 ]
 
