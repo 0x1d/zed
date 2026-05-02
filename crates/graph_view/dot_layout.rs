@@ -118,7 +118,12 @@ impl<'a> Parser<'a> {
         self.skip_optional_graph_id()?;
         self.expect_byte(b'{')
             .context("expected `{` after `digraph`")?;
-        self.parse_body()?;
+        self.parse_scope()
+            .context("expected content inside top-level `digraph {{`")?;
+        self.skip_ws();
+        if !self.is_eof() {
+            anyhow::bail!("unexpected trailing content after digraph");
+        }
         Ok(ParsedDot {
             graph: self.graph,
         })
@@ -133,19 +138,16 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_body(&mut self) -> anyhow::Result<()> {
+    /// Parses statements until a closing `}` for the current scope (digraph body or subgraph).
+    fn parse_scope(&mut self) -> anyhow::Result<()> {
         loop {
             self.skip_ws();
             match self.peek_byte() {
                 Some(b'}') => {
                     self.offset += 1;
-                    self.skip_ws();
-                    if !self.is_eof() {
-                        anyhow::bail!("unexpected trailing content after closing `}}`");
-                    }
                     return Ok(());
                 }
-                None => anyhow::bail!("unclosed digraph: expected `}}`"),
+                None => anyhow::bail!("unclosed scope: expected `}}`"),
                 _ => self.parse_statement()?,
             }
         }
@@ -157,23 +159,104 @@ impl<'a> Parser<'a> {
             return Ok(());
         }
 
+        if self.try_keyword("subgraph") {
+            self.skip_ws();
+            self.skip_optional_graph_id()?;
+            self.expect_byte(b'{')
+                .context("expected `{{` after `subgraph`")?;
+            return self.parse_scope();
+        }
+
         let first = self
             .parse_node_id()
-            .context("expected node id or end of digraph")?;
+            .context("expected node id, subgraph, or end of scope")?;
 
         self.skip_ws();
+        if self.peek_byte() == Some(b'=') {
+            self.skip_graph_assignment()?;
+            return Ok(());
+        }
         if self.try_arrow() {
             let target = self
                 .parse_node_id()
                 .context("expected target node id after `->`")?;
             self.ensure_edge(first, target)?;
             self.skip_ws();
+            self.skip_optional_edge_attributes()?;
+            self.skip_ws();
             self.skip_optional_semicolon();
             return Ok(());
         }
 
+        self.skip_ws();
+        if self.peek_byte() == Some(b'[') {
+            self.skip_balanced_square_brackets()?;
+        }
+        self.skip_ws();
         self.skip_optional_semicolon();
         self.ensure_node(first)?;
+        Ok(())
+    }
+
+    fn skip_graph_assignment(&mut self) -> anyhow::Result<()> {
+        self.expect_byte(b'=')?;
+        self.skip_ws();
+        self.skip_attribute_value()?;
+        self.skip_ws();
+        self.skip_optional_semicolon();
+        Ok(())
+    }
+
+    fn skip_attribute_value(&mut self) -> anyhow::Result<()> {
+        match self.peek_byte() {
+            Some(b'"') => {
+                self.parse_quoted_id()?;
+            }
+            Some(_) => {
+                self.parse_unquoted_id();
+            }
+            None => anyhow::bail!("unexpected end of input in assignment"),
+        }
+        Ok(())
+    }
+
+    fn skip_optional_edge_attributes(&mut self) -> anyhow::Result<()> {
+        if self.peek_byte() == Some(b'[') {
+            self.skip_balanced_square_brackets()?;
+        }
+        Ok(())
+    }
+
+    fn skip_balanced_square_brackets(&mut self) -> anyhow::Result<()> {
+        self.expect_byte(b'[')?;
+        let bytes = self.input.as_bytes();
+        let mut depth = 1_u32;
+        while self.offset < bytes.len() && depth > 0 {
+            match bytes[self.offset] {
+                b'[' => {
+                    depth += 1;
+                    self.offset += 1;
+                }
+                b']' => {
+                    depth -= 1;
+                    self.offset += 1;
+                }
+                b'"' => {
+                    self.offset += 1;
+                    while self.offset < bytes.len() {
+                        let b = bytes[self.offset];
+                        self.offset += 1;
+                        if b == b'"' {
+                            break;
+                        }
+                    }
+                }
+                _ => self.offset += 1,
+            }
+        }
+        if depth != 0 {
+            anyhow::bail!("unterminated `[` attribute list");
+        }
         Ok(())
     }
 
@@ -222,24 +305,38 @@ impl<'a> Parser<'a> {
     fn parse_quoted_id(&mut self) -> anyhow::Result<String> {
         self.expect_byte(b'"')
             .context("expected opening `\"` for quoted node id")?;
-        let start = self.offset;
+        let mut out = String::new();
         let bytes = self.input.as_bytes();
         while self.offset < bytes.len() {
             let b = bytes[self.offset];
             if b == b'"' {
-                let inner = self.input[start..self.offset].to_string();
                 self.offset += 1;
-                return Ok(inner);
+                return Ok(out);
             }
             if b == b'\\' {
-                return Err(anyhow!(
-                    "escape sequences in quoted node ids are not supported at byte {}",
-                    self.offset
-                ));
+                self.offset += 1;
+                if self.offset >= bytes.len() {
+                    return Err(anyhow!(
+                        "unterminated escape at end of string starting near byte {}",
+                        self.offset.saturating_sub(2)
+                    ));
+                }
+                match bytes[self.offset] {
+                    b'"' => out.push('"'),
+                    b'\\' => out.push('\\'),
+                    other => out.push(other as char),
+                }
+                self.offset += 1;
+                continue;
             }
-            self.offset += 1;
+            let ch = self.input[self.offset..]
+                .chars()
+                .next()
+                .ok_or_else(|| anyhow!("unexpected end inside quoted id"))?;
+            out.push(ch);
+            self.offset += ch.len_utf8();
         }
-        Err(anyhow!("unterminated string starting at byte {}", start.saturating_sub(1)))
+        Err(anyhow!("unterminated quoted string"))
     }
 
     fn parse_unquoted_id(&mut self) -> String {
@@ -327,7 +424,8 @@ fn is_id_start(b: u8) -> bool {
 }
 
 fn is_id_continue(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'-'
+    b.is_ascii_alphanumeric()
+        || matches!(b, b'_' | b'.' | b'-' | b'[' | b']' | b'/' | b':' | b'(' | b')')
 }
 
 #[cfg(test)]
@@ -340,6 +438,25 @@ digraph {
   "b" -> "c";
 }
 "#;
+
+    const TERRAFORM_STYLE: &str = r#"
+digraph {
+	compound = "true"
+	newrank = "true"
+	subgraph "root" {
+		"[root] null_resource.first (expand)" [label = "null_resource.first", shape = "box"]
+		"[root] null_resource.second (expand)" [label = "null_resource.second", shape = "box"]
+		"[root] null_resource.first (expand)" -> "[root] null_resource.second (expand)"
+	}
+}
+"#;
+
+    #[test]
+    fn parses_terraform_subgraph() {
+        let parsed = parse_dot_to_digraph(TERRAFORM_STYLE).expect("parse");
+        assert!(parsed.graph.node_count() >= 2);
+        assert!(is_dag(&parsed.graph));
+    }
 
     #[test]
     fn parses_chain_dag() {
