@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
-use gpui_flow::{FlowEdge, FlowNode, HandleDef, HandlePosition};
+use gpui::px;
+use gpui_flow::{EdgeType, FlowEdge, FlowNode, HandleDef, HandlePosition};
 use petgraph::algo::is_cyclic_directed;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::*;
@@ -13,6 +14,8 @@ const VERTICAL_STACK_GAP: f32 = 72.0;
 const NODE_HEIGHT: f32 = 52.0;
 const NODE_WIDTH_MIN: f32 = 140.0;
 const NODE_WIDTH_MAX: f32 = 320.0;
+/// Smooth-step edges offset from handle centers; matches typical orthogonal routing.
+const EDGE_SMOOTH_OFFSET: f32 = 12.0;
 
 fn estimated_node_width(label: &str) -> f32 {
     (label.chars().count() as f32 * 8.0 + 36.0)
@@ -220,15 +223,16 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
             let display = display_labels[i].clone();
             let x = left_edge + i as f32 * (cell_width + NODE_GAP);
 
-            nodes.push(
-                FlowNode::new(full_id.clone(), x, y)
-                    .label(display)
-                    .size(cell_width, NODE_HEIGHT)
-                    .handles(vec![
-                        HandleDef::target(HandlePosition::Top),
-                        HandleDef::source(HandlePosition::Bottom),
-                    ]),
-            );
+            let mut node = FlowNode::new(full_id.clone(), x, y)
+                .label(display)
+                .size(cell_width, NODE_HEIGHT)
+                .handles(vec![
+                    HandleDef::target(HandlePosition::Top),
+                    HandleDef::source(HandlePosition::Bottom),
+                ]);
+            node.measured_width = Some(px(cell_width));
+            node.measured_height = Some(px(NODE_HEIGHT));
+            nodes.push(node);
         }
     }
 
@@ -236,11 +240,14 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
     for (edge_idx, edge) in graph.edge_references().enumerate() {
         let source_id = graph[edge.source()].clone();
         let target_id = graph[edge.target()].clone();
-        edges.push(FlowEdge::new(
-            format!("e{}", edge_idx),
-            source_id,
-            target_id,
-        ));
+        edges.push(
+            FlowEdge::new(format!("e{}", edge_idx), source_id, target_id).edge_type(
+                EdgeType::SmoothStep {
+                    border_radius: 8.0,
+                    offset: EDGE_SMOOTH_OFFSET,
+                },
+            ),
+        );
     }
 
     Ok(FlowGraphModel { nodes, edges })
