@@ -29,7 +29,8 @@ ui = { workspace = true, optional = true }
 zed_actions = { workspace = true, optional = true }
 
 [dev-dependencies]
-gpui_platform = { workspace = true, default-features = false }
+# Examples need a display backend on Linux (Wayland or X11); CI/desktop here uses X11.
+gpui_platform = { workspace = true, default-features = false, features = ["x11"] }
 
 [[example]]
 name = "standalone_graph"
