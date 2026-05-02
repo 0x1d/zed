@@ -31,18 +31,22 @@ pub fn flow_graph_node_renderer(node: &FlowNode, _window: &mut Window, _cx: &mut
                     .text_xs()
                     .text_color(gpui::rgb(TYPE_COLOR))
                     .text_center()
+                    .whitespace_nowrap()
                     .overflow_hidden()
                     .text_ellipsis()
+                    .w_full()
                     .child(SharedString::from(*type_line)),
             )
             .child(
                 div()
                     .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::BOLD)
                     .text_color(gpui::rgb(NAME_COLOR))
                     .text_center()
+                    .whitespace_nowrap()
                     .overflow_hidden()
                     .text_ellipsis()
+                    .w_full()
                     .child(SharedString::from(*name_line)),
             )
             .into_any_element(),
@@ -50,8 +54,10 @@ pub fn flow_graph_node_renderer(node: &FlowNode, _window: &mut Window, _cx: &mut
             .text_sm()
             .text_color(gpui::rgb(NAME_COLOR))
             .text_center()
+            .whitespace_nowrap()
             .overflow_hidden()
             .text_ellipsis()
+            .w_full()
             .child(SharedString::from(label.to_string()))
             .into_any_element(),
     }

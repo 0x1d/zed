@@ -11,12 +11,12 @@ use petgraph::Graph;
 const NODE_GAP: f32 = 72.0;
 const VERTICAL_STACK_GAP: f32 = 72.0;
 const NODE_WIDTH_MIN: f32 = 128.0;
-const NODE_WIDTH_MAX: f32 = 420.0;
-const NODE_PAD_X: f32 = 36.0;
-const LINE_TYPE_W_PER_CHAR: f32 = 6.5;
-const LINE_NAME_W_PER_CHAR: f32 = 7.8;
-const TWO_LINE_HEIGHT: f32 = 64.0;
-const SINGLE_LINE_HEIGHT: f32 = 48.0;
+const NODE_WIDTH_MAX: f32 = 720.0;
+const NODE_PAD_X: f32 = 52.0;
+const LINE_TYPE_W_PER_CHAR: f32 = 7.2;
+const LINE_NAME_W_PER_CHAR: f32 = 8.8;
+const TWO_LINE_HEIGHT: f32 = 72.0;
+const SINGLE_LINE_HEIGHT: f32 = 52.0;
 
 /// Split display label into resource type (above) and resource name (below, bold in UI).
 #[derive(Debug, Clone, PartialEq, Eq)]
