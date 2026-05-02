@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
-use gpui_flow::{FlowEdge, FlowNode};
+use gpui_flow::{FlowEdge, FlowNode, HandleDef, HandlePosition};
 use petgraph::algo::is_cyclic_directed;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::*;
@@ -10,6 +10,14 @@ use petgraph::Graph;
 
 const NODE_GAP: f32 = 200.0;
 const LAYER_GAP: f32 = 120.0;
+const NODE_HEIGHT: f32 = 52.0;
+const NODE_WIDTH_MIN: f32 = 120.0;
+const NODE_WIDTH_MAX: f32 = 560.0;
+
+fn estimated_node_width(label: &str) -> f32 {
+    (label.chars().count() as f32 * 7.0 + 24.0)
+        .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX)
+}
 
 #[derive(Debug)]
 pub struct FlowGraphModel {
@@ -57,7 +65,16 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
             let count_f = count as f32;
             let slot_f = slot as f32;
             let x = (slot_f - (count_f - 1.0) / 2.0) * NODE_GAP;
-            nodes.push(FlowNode::new(label.clone(), x, y).label(label));
+            let width = estimated_node_width(label.as_str());
+            nodes.push(
+                FlowNode::new(label.clone(), x, y)
+                    .label(label)
+                    .size(width, NODE_HEIGHT)
+                    .handles(vec![
+                        HandleDef::target(HandlePosition::Top),
+                        HandleDef::source(HandlePosition::Bottom),
+                    ]),
+            );
         }
     }
 
