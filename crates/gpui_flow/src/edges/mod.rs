@@ -2,7 +2,7 @@ pub mod bezier;
 pub mod smooth_step;
 pub mod straight;
 
-use gpui::{Background, PathBuilder, Point, SharedString, Window, px};
+use gpui::{Background, Bounds, PathBuilder, Point, Pixels, SharedString, Window, px};
 
 use crate::store::FlowState;
 use crate::types::*;
@@ -15,7 +15,12 @@ use self::straight::get_straight_path;
 const ARROW_SIZE: f32 = 6.0;
 
 /// Paint all edges for the flow graph.
-pub fn paint_edges(state: &FlowState, window: &mut Window) {
+///
+/// `canvas_bounds` must be the same `Bounds` passed to the canvas paint callback so coordinates
+/// match `paint_grid` and node elements (which are laid out under the same origin).
+pub fn paint_edges(state: &FlowState, window: &mut Window, canvas_bounds: &Bounds<Pixels>) {
+    let ox = canvas_bounds.origin.x.as_f32();
+    let oy = canvas_bounds.origin.y.as_f32();
     // Viewport culling bounds
     let win_size = window.viewport_size();
     let win_w = win_size.width.as_f32();
@@ -43,15 +48,22 @@ pub fn paint_edges(state: &FlowState, window: &mut Window) {
         let source_handle_pos = find_handle_position(source_node, &edge.source_handle, HandleType::Source);
         let target_handle_pos = find_handle_position(target_node, &edge.target_handle, HandleType::Target);
 
-        let (sx, sy) = handle_center_from_node(source_node, source_handle_pos, &state.viewport);
-        let (tx, ty) = handle_center_from_node(target_node, target_handle_pos, &state.viewport);
+        let (sx_win, sy_win) = handle_center_from_node(source_node, source_handle_pos, &state.viewport);
+        let (tx_win, ty_win) = handle_center_from_node(target_node, target_handle_pos, &state.viewport);
 
-        // Cull edges where both endpoints are off-screen
-        let both_off_x = (sx < -margin && tx < -margin) || (sx > win_w + margin && tx > win_w + margin);
-        let both_off_y = (sy < -margin && ty < -margin) || (sy > win_h + margin && ty > win_h + margin);
+        // Cull edges where both endpoints are off-screen (window coordinates)
+        let both_off_x = (sx_win < -margin && tx_win < -margin)
+            || (sx_win > win_w + margin && tx_win > win_w + margin);
+        let both_off_y = (sy_win < -margin && ty_win < -margin)
+            || (sy_win > win_h + margin && ty_win > win_h + margin);
         if both_off_x || both_off_y {
             continue;
         }
+
+        let sx = sx_win - ox;
+        let sy = sy_win - oy;
+        let tx = tx_win - ox;
+        let ty = ty_win - oy;
 
         let color: Background = if edge.selected {
             selected_color.clone()

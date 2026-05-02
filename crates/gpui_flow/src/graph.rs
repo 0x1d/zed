@@ -546,10 +546,12 @@ impl FlowGraph {
         }
     }
 
-    /// Paint a selection box rectangle.
-    fn paint_selection_box(sel: &SelectionBox, window: &mut Window) {
-        let x = sel.start.0.min(sel.current.0);
-        let y = sel.start.1.min(sel.current.1);
+    /// Paint a selection box rectangle (coordinates relative to the flow canvas).
+    fn paint_selection_box(sel: &SelectionBox, window: &mut Window, canvas_bounds: &Bounds<Pixels>) {
+        let ox = canvas_bounds.origin.x.as_f32();
+        let oy = canvas_bounds.origin.y.as_f32();
+        let x = sel.start.0.min(sel.current.0) - ox;
+        let y = sel.start.1.min(sel.current.1) - oy;
         let w = (sel.start.0 - sel.current.0).abs();
         let h = (sel.start.1 - sel.current.1).abs();
 
@@ -584,11 +586,13 @@ impl FlowGraph {
         window.paint_quad(fill(right, border_color));
     }
 
-    /// Paint a draft connection line from handle to mouse cursor.
-    fn paint_connection_draft(draft: &ConnectionDraft, window: &mut Window) {
+    /// Paint a draft connection line from handle to mouse cursor (canvas-relative coordinates).
+    fn paint_connection_draft(draft: &ConnectionDraft, window: &mut Window, canvas_bounds: &Bounds<Pixels>) {
+        let ox = canvas_bounds.origin.x.as_f32();
+        let oy = canvas_bounds.origin.y.as_f32();
         let color: Background = gpui::rgba(0x3b82f680).into();
-        let (sx, sy) = draft.from_point;
-        let (tx, ty) = draft.to_point;
+        let (sx, sy) = (draft.from_point.0 - ox, draft.from_point.1 - oy);
+        let (tx, ty) = (draft.to_point.0 - ox, draft.to_point.1 - oy);
 
         let mut builder = PathBuilder::stroke(px(2.0));
         builder.move_to(Point::new(px(sx), px(sy)));
@@ -673,11 +677,14 @@ impl Render for FlowGraph {
                 if let Some(ref label) = edge.label {
                     if let Some((lx, ly)) = edges::compute_edge_label_position(state, edge) {
                         let label_color = edge.color.unwrap_or(0xb1b1b7);
+                        let off = window.element_offset();
+                        let ox = off.x.as_f32();
+                        let oy = off.y.as_f32();
                         edge_label_elements.push(
                             div()
                                 .absolute()
-                                .left(px(lx))
-                                .top(px(ly))
+                                .left(px(lx - ox))
+                                .top(px(ly - oy))
                                 .px_2()
                                 .py_0p5()
                                 .bg(gpui::rgb(bg))
@@ -733,16 +740,16 @@ impl Render for FlowGraph {
                     move |bounds, _: (), window, cx| {
                         Self::paint_grid(&bounds, &viewport_for_canvas, grid_color, bg_pattern, window);
                         let state = state_for_canvas.read(cx);
-                        edges::paint_edges(state, window);
+                        edges::paint_edges(state, window, &bounds);
 
                         // Paint draft connection line
                         if let Some(ref draft) = connecting_draft {
-                            Self::paint_connection_draft(draft, window);
+                            Self::paint_connection_draft(draft, window, &bounds);
                         }
 
                         // Paint selection box
                         if let Some(ref sel) = selection_box {
-                            Self::paint_selection_box(sel, window);
+                            Self::paint_selection_box(sel, window, &bounds);
                         }
                     },
                 )

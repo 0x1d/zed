@@ -128,14 +128,21 @@ impl Render for StandaloneGraph {
             state.fit_view(80.0, w, h);
         });
 
+        // FlowGraph must fill the same rectangle used by fit_view (full client area). A flex toolbar
+        // above would shift the graph pane without updating viewport math, so edges and nodes
+        // misalign ("floating" edges). Overlay the toolbar instead.
         div()
             .size_full()
-            .flex()
-            .flex_col()
+            .relative()
             .bg(rgb(0x1c1c1c))
             .track_focus(&self.focus_handle)
+            .child(div().size_full().child(self.flow_graph.clone()))
             .child(
                 div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
                     .flex()
                     .items_center()
                     .justify_between()
@@ -157,12 +164,6 @@ impl Render for StandaloneGraph {
                             .max_w(px(720.))
                             .child(self.status_line.clone()),
                     ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.flow_graph.clone()),
             )
     }
 }
