@@ -34,24 +34,27 @@ pub struct TerraformLayoutOptions {
 }
 
 impl TerraformLayoutOptions {
+    /// Handle positions matching Bench XYFlow / [`infra-node.tsx`] (`targetPosition`, `sourcePosition`).
     fn handles(&self) -> (HandlePosition, HandlePosition) {
+        let foundational = matches!(
+            self.dependency_flow,
+            TerraformDependencyFlow::DependenciesAtTop
+        );
         match self.direction {
-            TerraformLayoutDirection::Tb => match self.dependency_flow {
-                TerraformDependencyFlow::DependenciesAtTop => {
+            TerraformLayoutDirection::Tb => {
+                if foundational {
+                    (HandlePosition::Top, HandlePosition::Bottom)
+                } else {
                     (HandlePosition::Bottom, HandlePosition::Top)
                 }
-                TerraformDependencyFlow::DependentsAtTop => {
-                    (HandlePosition::Top, HandlePosition::Bottom)
-                }
-            },
-            TerraformLayoutDirection::Lr => match self.dependency_flow {
-                TerraformDependencyFlow::DependenciesAtTop => {
+            }
+            TerraformLayoutDirection::Lr => {
+                if foundational {
+                    (HandlePosition::Left, HandlePosition::Right)
+                } else {
                     (HandlePosition::Right, HandlePosition::Left)
                 }
-                TerraformDependencyFlow::DependentsAtTop => {
-                    (HandlePosition::Left, HandlePosition::Right)
-                }
-            },
+            }
         }
     }
 
@@ -74,13 +77,14 @@ impl TerraformLayoutOptions {
 const RANKSEP_BENCH: f32 = 100.0;
 /// Bench dagre `nodesep` / gap along a layer (`terraform-diagram.ts`).
 const NODESEP_BENCH: f32 = 80.0;
-const NODE_WIDTH_MIN: f32 = 128.0;
-const NODE_WIDTH_MAX: f32 = 720.0;
-const NODE_PAD_X: f32 = 52.0;
-const LINE_TYPE_W_PER_CHAR: f32 = 7.2;
-const LINE_NAME_W_PER_CHAR: f32 = 8.8;
-const TWO_LINE_HEIGHT: f32 = 72.0;
-const SINGLE_LINE_HEIGHT: f32 = 52.0;
+const NODE_WIDTH_MIN: f32 = 96.0;
+const NODE_PAD_X: f32 = 28.0;
+const LINE_TYPE_W_PER_CHAR: f32 = 8.0;
+const LINE_NAME_W_PER_CHAR: f32 = 9.5;
+const TWO_LINE_EXTRA_BELOW_NAME: f32 = 14.0;
+/// Rough pixel height for two text lines + gap inside chrome (`text_xs` + `text_sm`).
+const TWO_LINE_TEXT_HEIGHT_BASE: f32 = 62.0;
+const SINGLE_LINE_HEIGHT: f32 = 44.0;
 
 /// Split display label into resource type (above) and resource name (below, bold in UI).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,13 +142,13 @@ fn estimated_node_size(parts: &TerraformLabelParts) -> (f32, f32) {
         } => {
             let w_type = resource_type.chars().count() as f32 * LINE_TYPE_W_PER_CHAR;
             let w_name = resource_name.chars().count() as f32 * LINE_NAME_W_PER_CHAR;
-            let width = (w_type.max(w_name) + NODE_PAD_X).clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX);
-            (width, TWO_LINE_HEIGHT)
+            let width = (w_type.max(w_name) + NODE_PAD_X).max(NODE_WIDTH_MIN);
+            let height = TWO_LINE_TEXT_HEIGHT_BASE + TWO_LINE_EXTRA_BELOW_NAME;
+            (width, height)
         }
         TerraformLabelParts::Single(line) => {
-            let width =
-                (line.chars().count() as f32 * LINE_NAME_W_PER_CHAR + NODE_PAD_X)
-                    .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX);
+            let width = (line.chars().count() as f32 * LINE_NAME_W_PER_CHAR + NODE_PAD_X)
+                .max(NODE_WIDTH_MIN);
             (width, SINGLE_LINE_HEIGHT)
         }
     }
@@ -373,19 +377,23 @@ pub fn layout_flow_graph_with_options(
         match options.direction {
             TerraformLayoutDirection::Tb => {
                 let max_layer_height = sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max);
-                let max_cell_width = sizes.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max);
-                let row_width = count as f32 * max_cell_width
+                let row_width = sizes
+                    .iter()
+                    .map(|(w, _)| *w)
+                    .sum::<f32>()
                     + (count.saturating_sub(1) as f32) * secondary_gap;
                 let left_edge = -row_width / 2.0;
                 let y = cum_primary;
                 cum_primary += max_layer_height + primary_gap;
 
+                let mut x_cursor = left_edge;
                 for (i, &node_idx) in layer_nodes.iter().enumerate() {
                     let full_id = graph[node_idx].clone();
                     let parts = parts_per_node[i].clone();
                     let label = encoded_flow_label(&parts);
                     let (node_w, node_h) = sizes[i];
-                    let x = left_edge + i as f32 * (max_cell_width + secondary_gap);
+                    let x = x_cursor;
+                    x_cursor += node_w + secondary_gap;
 
                     nodes.push(
                         FlowNode::new(full_id.clone(), x, y)

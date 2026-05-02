@@ -2,10 +2,12 @@ use gpui::{AnyElement, App, FontWeight, SharedString, Window, div, prelude::*, p
 
 use gpui_flow::FlowNode;
 
-const TYPE_COLOR: u32 = 0x525252;
-const NAME_COLOR: u32 = 0x1a1a1a;
+/// Resource type line — subdued caption (Bench-like mono hint on second line).
+const TYPE_COLOR: u32 = 0x71717a;
+/// Resource name — primary emphasis.
+const NAME_COLOR: u32 = 0x171717;
 
-/// Two-line Terraform labels: `resource_type` then bold `name` (encoded as `type\\nname` on [`FlowNode::label`]).
+/// Two-line Terraform labels: `resource_type` then `name` (encoded as `type\\nname` on [`FlowNode::label`]).
 pub fn flow_graph_node_renderer(node: &FlowNode, _window: &mut Window, _cx: &mut App) -> AnyElement {
     let label = node.label.as_ref();
     if label.is_empty() {
@@ -23,29 +25,30 @@ pub fn flow_graph_node_renderer(node: &FlowNode, _window: &mut Window, _cx: &mut
             .flex_col()
             .items_center()
             .justify_center()
-            .gap(px(2.0))
+            .gap(px(4.0))
             .w_full()
             .min_w_0()
+            .px(px(4.0))
             .child(
                 div()
                     .text_xs()
+                    .italic()
+                    .opacity(0.92)
                     .text_color(gpui::rgb(TYPE_COLOR))
                     .text_center()
                     .whitespace_nowrap()
                     .overflow_hidden()
-                    .text_ellipsis()
                     .w_full()
                     .child(SharedString::from(*type_line)),
             )
             .child(
                 div()
                     .text_sm()
-                    .font_weight(FontWeight::BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(gpui::rgb(NAME_COLOR))
                     .text_center()
                     .whitespace_nowrap()
                     .overflow_hidden()
-                    .text_ellipsis()
                     .w_full()
                     .child(SharedString::from(*name_line)),
             )
@@ -56,8 +59,8 @@ pub fn flow_graph_node_renderer(node: &FlowNode, _window: &mut Window, _cx: &mut
             .text_center()
             .whitespace_nowrap()
             .overflow_hidden()
-            .text_ellipsis()
             .w_full()
+            .px(px(4.0))
             .child(SharedString::from(label.to_string()))
             .into_any_element(),
     }
