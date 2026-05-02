@@ -17,5 +17,6 @@ editor.workspace = true
 gpui.workspace = true
 gpui_flow = { workspace = true }
 petgraph.workspace = true
+util.workspace = true
 workspace.workspace = true
 ui.workspace = true
