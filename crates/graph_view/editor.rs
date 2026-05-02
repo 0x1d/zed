@@ -15,7 +15,9 @@ use workspace::item::{Item, ItemBufferKind, SaveOptions};
 use workspace::{Pane, SplitDirection, Workspace};
 pub use zed_actions::preview::terraform::{OpenPreview, OpenPreviewToTheSide, RefreshGraph};
 
-use crate::{layout_flow_graph, parse_dot_to_digraph, run_terraform_graph};
+use crate::{
+    configure_flow_state_for_fit, layout_flow_graph, parse_dot_to_digraph, run_terraform_graph,
+};
 
 const FLOW_BG: u32 = 0xf8f8f8;
 const FLOW_GRID: u32 = 0xd4d4d4;
@@ -142,7 +144,11 @@ impl GraphView {
     }
 
     fn create(source_editor: &Entity<Editor>, cx: &mut Context<Self>) -> Self {
-        let flow_state = cx.new(|_| FlowState::new(Vec::new(), Vec::new()));
+        let flow_state = cx.new(|_| {
+            let mut state = FlowState::new(Vec::new(), Vec::new());
+            configure_flow_state_for_fit(&mut state);
+            state
+        });
         let flow_graph = cx.new(|cx| {
             FlowGraph::new(flow_state.clone(), cx)
                 .bg_color(FLOW_BG)
@@ -224,6 +230,7 @@ impl GraphView {
                         {
                             Ok(model) => {
                                 view.flow_state.update(cx, |state, _| {
+                                    configure_flow_state_for_fit(state);
                                     state.set_nodes(model.nodes);
                                     state.set_edges(model.edges);
                                 });
@@ -335,7 +342,8 @@ impl Render for GraphView {
 
         if self.pending_fit_view || size_changed {
             self.flow_state.update(cx, |state, _| {
-                state.fit_view(40.0, container_width, container_height);
+                configure_flow_state_for_fit(state);
+                state.fit_view(80.0, container_width, container_height);
             });
             self.pending_fit_view = false;
             self.last_container = Some((container_width, container_height));

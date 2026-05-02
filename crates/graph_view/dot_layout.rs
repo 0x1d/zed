@@ -8,14 +8,14 @@ use petgraph::prelude::*;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 
-const NODE_GAP: f32 = 48.0;
-const VERTICAL_STACK_GAP: f32 = 56.0;
+const NODE_GAP: f32 = 72.0;
+const VERTICAL_STACK_GAP: f32 = 72.0;
 const NODE_HEIGHT: f32 = 52.0;
-const NODE_WIDTH_MIN: f32 = 120.0;
-const NODE_WIDTH_MAX: f32 = 280.0;
+const NODE_WIDTH_MIN: f32 = 140.0;
+const NODE_WIDTH_MAX: f32 = 320.0;
 
 fn estimated_node_width(label: &str) -> f32 {
-    (label.chars().count() as f32 * 7.5 + 28.0)
+    (label.chars().count() as f32 * 8.0 + 36.0)
         .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX)
 }
 

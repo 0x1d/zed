@@ -22,7 +22,9 @@ use gpui::{
 };
 use gpui_flow::{BackgroundPattern, FlowGraph, FlowState};
 use gpui_platform::application;
-use graph_view::{layout_flow_graph, parse_dot_to_digraph, run_terraform_graph};
+use graph_view::{
+    configure_flow_state_for_fit, layout_flow_graph, parse_dot_to_digraph, run_terraform_graph,
+};
 
 const FLOW_BG: u32 = 0xf8f8f8;
 const FLOW_GRID: u32 = 0xd4d4d4;
@@ -43,7 +45,11 @@ struct StandaloneGraph {
 
 impl StandaloneGraph {
     fn new(cx: &mut Context<Self>) -> Self {
-        let flow_state = cx.new(|_| FlowState::new(Vec::new(), Vec::new()));
+        let flow_state = cx.new(|_| {
+            let mut state = FlowState::new(Vec::new(), Vec::new());
+            configure_flow_state_for_fit(&mut state);
+            state
+        });
         let flow_graph = cx.new(|cx| {
             FlowGraph::new(flow_state.clone(), cx)
                 .bg_color(FLOW_BG)
@@ -79,6 +85,7 @@ impl StandaloneGraph {
                     {
                         Ok(model) => {
                             view.flow_state.update(cx, |state, _| {
+                                configure_flow_state_for_fit(state);
                                 state.set_nodes(model.nodes);
                                 state.set_edges(model.edges);
                             });
@@ -117,7 +124,8 @@ impl Render for StandaloneGraph {
         let w = viewport.width.as_f32();
         let h = viewport.height.as_f32();
         self.flow_state.update(cx, |state, _| {
-            state.fit_view(40.0, w, h);
+            configure_flow_state_for_fit(state);
+            state.fit_view(80.0, w, h);
         });
 
         div()
@@ -161,7 +169,7 @@ impl Render for StandaloneGraph {
 
 fn main() {
     application().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1100.0), px(720.0)), cx);
+        let bounds = Bounds::centered(None, size(px(1400.0), px(880.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
