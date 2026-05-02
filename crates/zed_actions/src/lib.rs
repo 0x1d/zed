@@ -811,6 +811,22 @@ pub mod preview {
             ]
         );
     }
+
+    pub mod terraform {
+        use gpui::actions;
+
+        actions!(
+            terraform,
+            [
+                /// Opens Terraform dependency graph for the current file.
+                OpenPreview,
+                /// Opens Terraform dependency graph in a split pane.
+                OpenPreviewToTheSide,
+                /// Refreshes the Terraform dependency graph.
+                RefreshGraph,
+            ]
+        );
+    }
 }
 
 pub mod agents_sidebar {
