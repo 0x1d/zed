@@ -10,13 +10,80 @@ use petgraph::Graph;
 
 const NODE_GAP: f32 = 72.0;
 const VERTICAL_STACK_GAP: f32 = 72.0;
-const NODE_HEIGHT: f32 = 52.0;
-const NODE_WIDTH_MIN: f32 = 140.0;
-const NODE_WIDTH_MAX: f32 = 320.0;
+const NODE_WIDTH_MIN: f32 = 128.0;
+const NODE_WIDTH_MAX: f32 = 420.0;
+const NODE_PAD_X: f32 = 36.0;
+const LINE_TYPE_W_PER_CHAR: f32 = 6.5;
+const LINE_NAME_W_PER_CHAR: f32 = 7.8;
+const TWO_LINE_HEIGHT: f32 = 64.0;
+const SINGLE_LINE_HEIGHT: f32 = 48.0;
 
-fn estimated_node_width(label: &str) -> f32 {
-    (label.chars().count() as f32 * 8.0 + 36.0)
-        .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX)
+/// Split display label into resource type (above) and resource name (below, bold in UI).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerraformLabelParts {
+    TwoLines {
+        resource_type: String,
+        resource_name: String,
+    },
+    Single(String),
+}
+
+/// Parses [`terraform_display_label`] output into type / name when possible.
+pub fn terraform_label_parts(display: &str) -> TerraformLabelParts {
+    let display = display.trim();
+    if display.is_empty() {
+        return TerraformLabelParts::Single(String::new());
+    }
+
+    if let Some(rest) = display.strip_prefix("provider.") {
+        return TerraformLabelParts::TwoLines {
+            resource_type: "provider".to_string(),
+            resource_name: rest.to_string(),
+        };
+    }
+
+    if let Some(dot_pos) = display.rfind('.') {
+        let resource_type = display[..dot_pos].trim();
+        let resource_name = display[dot_pos + 1..].trim();
+        if !resource_type.is_empty() && !resource_name.is_empty() {
+            return TerraformLabelParts::TwoLines {
+                resource_type: resource_type.to_string(),
+                resource_name: resource_name.to_string(),
+            };
+        }
+    }
+
+    TerraformLabelParts::Single(display.to_string())
+}
+
+fn encoded_flow_label(parts: &TerraformLabelParts) -> String {
+    match parts {
+        TerraformLabelParts::TwoLines {
+            resource_type,
+            resource_name,
+        } => format!("{resource_type}\n{resource_name}"),
+        TerraformLabelParts::Single(s) => s.clone(),
+    }
+}
+
+fn estimated_node_size(parts: &TerraformLabelParts) -> (f32, f32) {
+    match parts {
+        TerraformLabelParts::TwoLines {
+            resource_type,
+            resource_name,
+        } => {
+            let w_type = resource_type.chars().count() as f32 * LINE_TYPE_W_PER_CHAR;
+            let w_name = resource_name.chars().count() as f32 * LINE_NAME_W_PER_CHAR;
+            let width = (w_type.max(w_name) + NODE_PAD_X).clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX);
+            (width, TWO_LINE_HEIGHT)
+        }
+        TerraformLabelParts::Single(line) => {
+            let width =
+                (line.chars().count() as f32 * LINE_NAME_W_PER_CHAR + NODE_PAD_X)
+                    .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX);
+            (width, SINGLE_LINE_HEIGHT)
+        }
+    }
 }
 
 /// Display text only: `resource_type.name` or `provider.<type>` for Terraform graph DOT ids.
@@ -192,22 +259,27 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
 
     order_layers_barycenter(graph, &mut layers);
 
+    let mut cum_y = 0.0_f32;
     let mut nodes = Vec::with_capacity(node_count);
-    for (layer, layer_nodes) in layers.iter().enumerate() {
+    for layer_nodes in &layers {
         let count = layer_nodes.len();
         if count == 0 {
             continue;
         }
-        let y = layer as f32 * (NODE_HEIGHT + VERTICAL_STACK_GAP);
 
-        let display_labels: Vec<String> = layer_nodes
+        let parts_per_node: Vec<TerraformLabelParts> = layer_nodes
             .iter()
-            .map(|&idx| terraform_display_label(graph[idx].as_str()))
+            .map(|&idx| terraform_label_parts(&terraform_display_label(graph[idx].as_str())))
             .collect();
 
-        let max_content_width = display_labels
+        let max_layer_height = parts_per_node
             .iter()
-            .map(|s| estimated_node_width(s))
+            .map(|parts| estimated_node_size(parts).1)
+            .fold(0.0_f32, f32::max);
+
+        let max_content_width = parts_per_node
+            .iter()
+            .map(|parts| estimated_node_size(parts).0)
             .fold(0.0_f32, f32::max);
 
         let cell_width = max_content_width;
@@ -215,15 +287,20 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
             count as f32 * cell_width + (count.saturating_sub(1) as f32) * NODE_GAP;
         let left_edge = -row_width / 2.0;
 
+        let y = cum_y;
+        cum_y += max_layer_height + VERTICAL_STACK_GAP;
+
         for (i, &node_idx) in layer_nodes.iter().enumerate() {
             let full_id = graph[node_idx].clone();
-            let display = display_labels[i].clone();
+            let parts = parts_per_node[i].clone();
+            let label = encoded_flow_label(&parts);
+            let (node_w, node_h) = estimated_node_size(&parts);
             let x = left_edge + i as f32 * (cell_width + NODE_GAP);
 
             nodes.push(
                 FlowNode::new(full_id.clone(), x, y)
-                    .label(display)
-                    .size(cell_width, NODE_HEIGHT)
+                    .label(label)
+                    .size(node_w, node_h)
                     .handles(vec![
                         HandleDef::target(HandlePosition::Top),
                         HandleDef::source(HandlePosition::Bottom),
@@ -597,6 +674,39 @@ fn is_id_start(b: u8) -> bool {
 fn is_id_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric()
         || matches!(b, b'_' | b'.' | b'-' | b'[' | b']' | b'/' | b':' | b'(' | b')')
+}
+
+#[cfg(test)]
+mod label_parts_tests {
+    use super::*;
+
+    #[test]
+    fn splits_null_resource() {
+        match terraform_label_parts("null_resource.deploy") {
+            TerraformLabelParts::TwoLines {
+                resource_type,
+                resource_name,
+            } => {
+                assert_eq!(resource_type, "null_resource");
+                assert_eq!(resource_name, "deploy");
+            }
+            TerraformLabelParts::Single(_) => panic!("expected two lines"),
+        }
+    }
+
+    #[test]
+    fn provider_splits_to_type_provider() {
+        match terraform_label_parts("provider.null") {
+            TerraformLabelParts::TwoLines {
+                resource_type,
+                resource_name,
+            } => {
+                assert_eq!(resource_type, "provider");
+                assert_eq!(resource_name, "null");
+            }
+            TerraformLabelParts::Single(_) => panic!("expected two lines"),
+        }
+    }
 }
 
 #[cfg(test)]

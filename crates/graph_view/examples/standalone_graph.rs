@@ -23,7 +23,8 @@ use gpui::{
 use gpui_flow::{BackgroundPattern, FlowGraph, FlowState};
 use gpui_platform::application;
 use graph_view::{
-    configure_flow_state_for_fit, layout_flow_graph, parse_dot_to_digraph, run_terraform_graph,
+    configure_flow_state_for_fit, flow_graph_node_renderer, layout_flow_graph, parse_dot_to_digraph,
+    run_terraform_graph,
 };
 
 const FLOW_BG: u32 = 0xf8f8f8;
@@ -57,6 +58,7 @@ impl StandaloneGraph {
                 .bg_pattern(BackgroundPattern::Dots)
                 .node_bg_color(FLOW_NODE_BG)
                 .node_border_color(FLOW_NODE_BORDER)
+                .default_renderer(flow_graph_node_renderer)
         });
 
         let mut view = Self {

@@ -156,6 +156,7 @@ impl GraphView {
                 .bg_pattern(BackgroundPattern::Dots)
                 .node_bg_color(FLOW_NODE_BG)
                 .node_border_color(FLOW_NODE_BORDER)
+                .default_renderer(crate::flow_graph_node_renderer)
         });
 
         let editor = source_editor.clone();
