@@ -8,15 +8,149 @@ use petgraph::prelude::*;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 
-const NODE_GAP: f32 = 32.0;
-const VERTICAL_STACK_GAP: f32 = 48.0;
+const NODE_GAP: f32 = 48.0;
+const VERTICAL_STACK_GAP: f32 = 56.0;
 const NODE_HEIGHT: f32 = 52.0;
 const NODE_WIDTH_MIN: f32 = 120.0;
-const NODE_WIDTH_MAX: f32 = 560.0;
+const NODE_WIDTH_MAX: f32 = 280.0;
 
 fn estimated_node_width(label: &str) -> f32 {
-    (label.chars().count() as f32 * 7.0 + 24.0)
+    (label.chars().count() as f32 * 7.5 + 28.0)
         .clamp(NODE_WIDTH_MIN, NODE_WIDTH_MAX)
+}
+
+/// Display text only: `resource_type.name` or `provider.<type>` for Terraform graph DOT ids.
+pub fn terraform_display_label(dot_node_id: &str) -> String {
+    let mut s = dot_node_id.trim();
+
+    if let Some(rest) = s.strip_prefix("[root]") {
+        s = rest.trim_start();
+    }
+
+    if let Some(open) = s.find(" (\"") {
+        let tail = &s[open..];
+        if tail.starts_with(" (expand)") || tail.starts_with(" (close)") {
+            s = &s[..open];
+        }
+    } else if let Some(open) = s.rfind(" (") {
+        let tail = &s[open..];
+        if tail.starts_with(" (expand)")
+            || tail.starts_with(" (close)")
+            || tail.starts_with(" (destroy)")
+        {
+            s = &s[..open];
+        }
+    }
+
+    if let Some(provider_rest) = s.strip_prefix("provider[\"") {
+        let mut addr = provider_rest;
+        if let Some(end) = addr.find('"') {
+            addr = &addr[..end];
+        }
+        if let Some(provider_type) = addr.rsplit('/').next() {
+            return format!("provider.{provider_type}");
+        }
+    }
+
+    s.to_string()
+}
+
+fn order_layers_barycenter(graph: &Graph<String, ()>, layers: &mut Vec<Vec<NodeIndex>>) {
+    const PASSES: usize = 24;
+
+    if layers.len() <= 1 {
+        return;
+    }
+
+    for _ in 0..PASSES {
+        for layer_idx in 1..layers.len() {
+            let prev = &layers[layer_idx - 1];
+            let pos: HashMap<NodeIndex, f32> = prev
+                .iter()
+                .enumerate()
+                .map(|(slot, &node)| (node, slot as f32))
+                .collect();
+
+            layers[layer_idx].sort_by(|&a, &b| {
+                let ba = barycenter_down(graph, &pos, a);
+                let bb = barycenter_down(graph, &pos, b);
+                ba.partial_cmp(&bb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        terraform_display_label(graph[a].as_str())
+                            .cmp(&terraform_display_label(graph[b].as_str()))
+                    })
+            });
+        }
+
+        for layer_idx in (0..layers.len().saturating_sub(1)).rev() {
+            let next = &layers[layer_idx + 1];
+            let pos: HashMap<NodeIndex, f32> = next
+                .iter()
+                .enumerate()
+                .map(|(slot, &node)| (node, slot as f32))
+                .collect();
+
+            layers[layer_idx].sort_by(|&a, &b| {
+                let ba = barycenter_up(graph, &pos, a);
+                let bb = barycenter_up(graph, &pos, b);
+                ba.partial_cmp(&bb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        terraform_display_label(graph[a].as_str())
+                            .cmp(&terraform_display_label(graph[b].as_str()))
+                    })
+            });
+        }
+    }
+}
+
+fn barycenter_down(
+    graph: &Graph<String, ()>,
+    prev_pos: &HashMap<NodeIndex, f32>,
+    node: NodeIndex,
+) -> f32 {
+    let preds: Vec<NodeIndex> = graph
+        .edges_directed(node, Incoming)
+        .map(|edge| edge.source())
+        .collect();
+    if preds.is_empty() {
+        return 0.0;
+    }
+    let sum: f32 = preds
+        .iter()
+        .filter_map(|pred| prev_pos.get(pred).copied())
+        .sum();
+    let count = preds.len() as f32;
+    if count > 0.0 {
+        sum / count
+    } else {
+        0.0
+    }
+}
+
+fn barycenter_up(
+    graph: &Graph<String, ()>,
+    next_pos: &HashMap<NodeIndex, f32>,
+    node: NodeIndex,
+) -> f32 {
+    let succs: Vec<NodeIndex> = graph
+        .edges_directed(node, Outgoing)
+        .map(|edge| edge.target())
+        .collect();
+    if succs.is_empty() {
+        return 0.0;
+    }
+    let sum: f32 = succs
+        .iter()
+        .filter_map(|succ| next_pos.get(succ).copied())
+        .sum();
+    let count = succs.len() as f32;
+    if count > 0.0 {
+        sum / count
+    } else {
+        0.0
+    }
 }
 
 #[derive(Debug)]
@@ -53,38 +187,43 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
     }
 
     for layer_nodes in &mut layers {
-        layer_nodes.sort_by_key(|&idx| graph[idx].as_str());
+        layer_nodes.sort_by_key(|&idx| terraform_display_label(graph[idx].as_str()));
     }
+
+    order_layers_barycenter(graph, &mut layers);
 
     let mut nodes = Vec::with_capacity(node_count);
     for (layer, layer_nodes) in layers.iter().enumerate() {
         let count = layer_nodes.len();
+        if count == 0 {
+            continue;
+        }
         let y = layer as f32 * (NODE_HEIGHT + VERTICAL_STACK_GAP);
 
-        let widths: Vec<f32> = layer_nodes
+        let display_labels: Vec<String> = layer_nodes
             .iter()
-            .map(|&idx| estimated_node_width(graph[idx].as_str()))
+            .map(|&idx| terraform_display_label(graph[idx].as_str()))
             .collect();
 
-        let row_inner_width: f32 = widths.iter().sum();
-        let gaps_width = if count <= 1 {
-            0.0
-        } else {
-            NODE_GAP * (count - 1) as f32
-        };
-        let row_width = row_inner_width + gaps_width;
-        let mut x_cursor = -row_width / 2.0;
+        let max_content_width = display_labels
+            .iter()
+            .map(|s| estimated_node_width(s))
+            .fold(0.0_f32, f32::max);
 
-        for (slot, &node_idx) in layer_nodes.iter().enumerate() {
-            let label = graph[node_idx].clone();
-            let width = widths[slot];
-            let x = x_cursor;
-            x_cursor += width + NODE_GAP;
+        let cell_width = max_content_width;
+        let row_width =
+            count as f32 * cell_width + (count.saturating_sub(1) as f32) * NODE_GAP;
+        let left_edge = -row_width / 2.0;
+
+        for (i, &node_idx) in layer_nodes.iter().enumerate() {
+            let full_id = graph[node_idx].clone();
+            let display = display_labels[i].clone();
+            let x = left_edge + i as f32 * (cell_width + NODE_GAP);
 
             nodes.push(
-                FlowNode::new(label.clone(), x, y)
-                    .label(label)
-                    .size(width, NODE_HEIGHT)
+                FlowNode::new(full_id.clone(), x, y)
+                    .label(display)
+                    .size(cell_width, NODE_HEIGHT)
                     .handles(vec![
                         HandleDef::target(HandlePosition::Top),
                         HandleDef::source(HandlePosition::Bottom),
@@ -458,6 +597,30 @@ fn is_id_start(b: u8) -> bool {
 fn is_id_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric()
         || matches!(b, b'_' | b'.' | b'-' | b'[' | b']' | b'/' | b':' | b'(' | b')')
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::terraform_display_label;
+
+    #[test]
+    fn strips_root_brackets_and_expand_suffix() {
+        assert_eq!(
+            terraform_display_label("[root] null_resource.frontend_build (expand)"),
+            "null_resource.frontend_build"
+        );
+    }
+
+    #[test]
+    fn provider_registry_address_maps_to_provider_null() {
+        let id = "[root] provider[\"registry.terraform.io/hashicorp/null\"]";
+        assert_eq!(terraform_display_label(id), "provider.null");
+    }
+
+    #[test]
+    fn plain_labels_untouched() {
+        assert_eq!(terraform_display_label("a"), "a");
+    }
 }
 
 #[cfg(test)]

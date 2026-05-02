@@ -12,6 +12,7 @@ pub use editor::{
 };
 
 pub use dot_layout::{
-    is_dag, layout_flow_graph, parse_dot_to_digraph, FlowGraphModel, ParsedDot,
+    is_dag, layout_flow_graph, parse_dot_to_digraph, terraform_display_label, FlowGraphModel,
+    ParsedDot,
 };
 pub use terraform_graph::run_terraform_graph;
