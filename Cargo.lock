@@ -7981,9 +7981,11 @@ dependencies = [
  "gpui",
  "gpui_flow",
  "petgraph",
+ "project",
  "ui",
  "util",
  "workspace",
+ "zed_actions",
 ]
 
 [[package]]
