@@ -352,6 +352,12 @@ impl Render for GraphView {
             .size_full()
             .relative()
             .track_focus(&self.focus_handle)
+            .on_action(cx.listener(|this: &mut GraphView, _: &RefreshGraph, window, cx| {
+                this.refresh(cx);
+                cx.notify();
+                let handle = this.focus_handle.clone();
+                handle.focus(window, cx);
+            }))
             .child(self.flow_graph.clone())
             .when_some(self.last_error.clone(), |stack, message| {
                 stack.child(
