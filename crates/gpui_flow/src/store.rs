@@ -237,16 +237,17 @@ impl FlowState {
         let node = self.get_node(node_id)?;
         let (sx, sy) = self.viewport.flow_to_screen(node.position);
 
-        // Use measured wrapper dimensions if available, otherwise estimate.
-        // measured_width/height store the full wrapper size (set by the measurement canvas).
-        let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
-        let h = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
+        // measured_width/height are in flow space (same units as node.position).
+        let wf = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
+        let hf = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
+        let w_screen = wf * self.viewport.zoom;
+        let h_screen = hf * self.viewport.zoom;
 
         let (cx, cy) = match handle_position {
-            HandlePosition::Top => (sx + w / 2.0, sy),
-            HandlePosition::Bottom => (sx + w / 2.0, sy + h),
-            HandlePosition::Left => (sx, sy + h / 2.0),
-            HandlePosition::Right => (sx + w, sy + h / 2.0),
+            HandlePosition::Top => (sx + w_screen / 2.0, sy),
+            HandlePosition::Bottom => (sx + w_screen / 2.0, sy + h_screen),
+            HandlePosition::Left => (sx, sy + h_screen / 2.0),
+            HandlePosition::Right => (sx + w_screen, sy + h_screen / 2.0),
         };
         Some((cx, cy))
     }

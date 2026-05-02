@@ -146,6 +146,10 @@ impl FlowGraph {
         }
 
         let (screen_x, screen_y) = viewport.flow_to_screen(node.position);
+        let wf = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
+        let hf = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
+        let w_screen = wf * viewport.zoom;
+        let h_screen = hf * viewport.zoom;
 
         // Choose renderer
         let content = if let Some(node_type) = &node.node_type {
@@ -180,11 +184,16 @@ impl FlowGraph {
         let measure_node_id = node.id.clone();
         let prev_w = node.measured_width;
         let prev_h = node.measured_height;
+        let zoom_for_measure = viewport.zoom;
         let measure_canvas = canvas(
             |_bounds, _window, _cx| {},
             move |bounds, _: (), _window, cx| {
-                let w = bounds.size.width;
-                let h = bounds.size.height;
+                let w_screen = bounds.size.width.as_f32();
+                let h_screen = bounds.size.height.as_f32();
+                let w_flow = w_screen / zoom_for_measure;
+                let h_flow = h_screen / zoom_for_measure;
+                let w = gpui::px(w_flow);
+                let h = gpui::px(h_flow);
                 if prev_w != Some(w) || prev_h != Some(h) {
                     measure_state.update(cx, |state, _| {
                         if let Some(node) = state.get_node_mut(&measure_node_id) {
@@ -203,6 +212,8 @@ impl FlowGraph {
             .absolute()
             .left(px(screen_x))
             .top(px(screen_y))
+            .w(px(w_screen))
+            .h(px(h_screen))
             // Node box styling on the wrapper so handles align to visual edges
             .when(show_chrome, |el: Stateful<Div>| {
                 el.bg(gpui::rgb(node_bg))
@@ -639,8 +650,8 @@ impl Render for FlowGraph {
                     continue;
                 }
                 let (sx, sy) = viewport.flow_to_screen(node.position);
-                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0);
-                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(50.0);
+                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0) * viewport.zoom;
+                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(50.0) * viewport.zoom;
                 if sx + nw < -cull_margin || sx > win_w + cull_margin
                     || sy + nh < -cull_margin || sy > win_h + cull_margin
                 {
@@ -834,8 +845,8 @@ impl Render for FlowGraph {
                                     continue;
                                 }
                                 let (nx, ny) = viewport.flow_to_screen(node.position);
-                                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0);
-                                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(40.0);
+                                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0) * viewport.zoom;
+                                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(40.0) * viewport.zoom;
                                 // AABB intersection
                                 let intersects = nx < ex && nx + nw > sx && ny < ey && ny + nh > sy;
                                 node.selected = intersects;

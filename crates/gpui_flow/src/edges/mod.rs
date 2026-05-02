@@ -336,8 +336,10 @@ fn find_handle_position(
 /// Compute handle center directly from a node reference (no HashMap lookup).
 fn handle_center_from_node(node: &FlowNode, handle_pos: HandlePosition, viewport: &Viewport) -> (f32, f32) {
     let (sx, sy) = viewport.flow_to_screen(node.position);
-    let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
-    let h = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
+    let wf = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
+    let hf = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
+    let w = wf * viewport.zoom;
+    let h = hf * viewport.zoom;
     match handle_pos {
         HandlePosition::Top => (sx + w / 2.0, sy),
         HandlePosition::Bottom => (sx + w / 2.0, sy + h),

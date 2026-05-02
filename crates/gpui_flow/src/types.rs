@@ -159,8 +159,8 @@ impl FlowNode {
         self
     }
 
-    /// Set initial estimated size (width, height in pixels).
-    /// Used for edge positioning before the node is rendered and measured.
+    /// Set initial estimated size in **flow** units (width, height; same as `node.position` scale).
+    /// Used for edge positioning; on screen, dimensions are multiplied by the viewport zoom.
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.measured_width = Some(gpui::px(width));
         self.measured_height = Some(gpui::px(height));
