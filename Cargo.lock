@@ -7721,6 +7721,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui_flow"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui_macos",
+]
+
+[[package]]
 name = "gpui_linux"
 version = "0.1.0"
 dependencies = [

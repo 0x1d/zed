@@ -1,0 +1,32 @@
+[package]
+name = "gpui_flow"
+version = "0.1.0"
+edition = "2024"
+description = "A node-based flow graph editor for GPUI, inspired by React Flow / xyflow."
+license = "MIT"
+repository = "https://github.com/pacifio/gpui-flow"
+homepage = "https://github.com/pacifio/gpui-flow"
+readme = "README.md"
+keywords = ["gpui", "flow", "graph", "node-editor", "react-flow"]
+categories = ["gui", "graphics"]
+
+[dependencies]
+gpui = { path = "../gpui" }
+
+[dev-dependencies]
+gpui_macos = { path = "../gpui_macos", features = ["font-kit"] }
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "mindmap"
+path = "examples/mindmap.rs"
+
+[[example]]
+name = "stress"
+path = "examples/stress.rs"
+
+[lints.clippy]
+type_complexity = "allow"
