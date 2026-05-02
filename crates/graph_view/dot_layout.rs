@@ -8,8 +8,8 @@ use petgraph::prelude::*;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 
-const NODE_GAP: f32 = 200.0;
-const LAYER_GAP: f32 = 120.0;
+const NODE_GAP: f32 = 32.0;
+const VERTICAL_STACK_GAP: f32 = 48.0;
 const NODE_HEIGHT: f32 = 52.0;
 const NODE_WIDTH_MIN: f32 = 120.0;
 const NODE_WIDTH_MAX: f32 = 560.0;
@@ -59,13 +59,28 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
     let mut nodes = Vec::with_capacity(node_count);
     for (layer, layer_nodes) in layers.iter().enumerate() {
         let count = layer_nodes.len();
-        let y = layer as f32 * LAYER_GAP;
+        let y = layer as f32 * (NODE_HEIGHT + VERTICAL_STACK_GAP);
+
+        let widths: Vec<f32> = layer_nodes
+            .iter()
+            .map(|&idx| estimated_node_width(graph[idx].as_str()))
+            .collect();
+
+        let row_inner_width: f32 = widths.iter().sum();
+        let gaps_width = if count <= 1 {
+            0.0
+        } else {
+            NODE_GAP * (count - 1) as f32
+        };
+        let row_width = row_inner_width + gaps_width;
+        let mut x_cursor = -row_width / 2.0;
+
         for (slot, &node_idx) in layer_nodes.iter().enumerate() {
             let label = graph[node_idx].clone();
-            let count_f = count as f32;
-            let slot_f = slot as f32;
-            let x = (slot_f - (count_f - 1.0) / 2.0) * NODE_GAP;
-            let width = estimated_node_width(label.as_str());
+            let width = widths[slot];
+            let x = x_cursor;
+            x_cursor += width + NODE_GAP;
+
             nodes.push(
                 FlowNode::new(label.clone(), x, y)
                     .label(label)
@@ -494,6 +509,36 @@ digraph {
         assert_eq!(parsed.graph.node_count(), 2);
         assert!(!is_dag(&parsed.graph));
         assert!(is_cyclic_directed(&parsed.graph));
+    }
+
+    #[test]
+    fn layout_same_layer_aligns_y() {
+        let dot = r#"
+digraph {
+  "left" -> "down";
+  "right" -> "down";
+}
+"#;
+        let parsed = parse_dot_to_digraph(dot).expect("parse");
+        let model = layout_flow_graph(&parsed.graph).expect("layout");
+        let y_left = model
+            .nodes
+            .iter()
+            .find(|n| n.id.as_ref() == "left")
+            .unwrap()
+            .position
+            .y;
+        let y_right = model
+            .nodes
+            .iter()
+            .find(|n| n.id.as_ref() == "right")
+            .unwrap()
+            .position
+            .y;
+        assert!(
+            (y_left - y_right).abs() < 0.01,
+            "same layer must share y: left={y_left} right={y_right}"
+        );
     }
 
     #[test]
