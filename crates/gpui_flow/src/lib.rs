@@ -1,3 +1,6 @@
+//! Vendored from [gpui-flow](https://github.com/pacifio/gpui-flow); upstream Clippy style differs from this workspace.
+#![allow(clippy::all)]
+
 pub mod controls;
 pub mod edges;
 pub mod graph;
