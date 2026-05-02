@@ -734,6 +734,7 @@ fn main() {
         feedback::init(cx);
         markdown_preview::init(cx);
         csv_preview::init(cx);
+        graph_view::init(cx);
         svg_preview::init(cx);
         onboarding::init(cx);
         settings_ui::init(cx);
