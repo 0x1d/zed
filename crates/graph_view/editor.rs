@@ -13,10 +13,14 @@ use project::Project;
 use ui::prelude::*;
 use workspace::item::{Item, ItemBufferKind, SaveOptions};
 use workspace::{Pane, SplitDirection, Workspace};
-pub use zed_actions::preview::terraform::{OpenPreview, OpenPreviewToTheSide, RefreshGraph};
+pub use zed_actions::preview::terraform::{
+    OpenPreview, OpenPreviewToTheSide, RefreshGraph, ToggleDependencyFlow, ToggleLayoutDirection,
+};
 
 use crate::{
-    configure_flow_state_for_fit, layout_flow_graph, parse_dot_to_digraph, run_terraform_graph,
+    configure_flow_state_for_fit, layout_flow_graph_with_options, parse_dot_to_digraph,
+    run_terraform_graph, save_layout_options, load_layout_options, TerraformDependencyFlow,
+    TerraformLayoutDirection, TerraformLayoutOptions,
 };
 
 const FLOW_BG: u32 = 0xf8f8f8;
@@ -60,6 +64,8 @@ pub struct GraphView {
     pending_fit_view: bool,
     last_container: Option<(f32, f32)>,
     pub last_error: Option<SharedString>,
+    layout_options: TerraformLayoutOptions,
+    last_dot: Option<String>,
     _subscription: Subscription,
 }
 
@@ -121,6 +127,44 @@ impl GraphView {
                 });
             }
         });
+
+        workspace.register_action(move |workspace, _: &ToggleLayoutDirection, _window, cx| {
+            if let Some(graph) = workspace
+                .active_item(cx)
+                .and_then(|item| item.act_as::<GraphView>(cx))
+            {
+                graph.update(cx, |view, cx| {
+                    view.layout_options.direction = match view.layout_options.direction {
+                        TerraformLayoutDirection::Tb => TerraformLayoutDirection::Lr,
+                        TerraformLayoutDirection::Lr => TerraformLayoutDirection::Tb,
+                    };
+                    let _ = save_layout_options(view.layout_options);
+                    view.apply_layout_from_cached_dot(cx);
+                    cx.notify();
+                });
+            }
+        });
+
+        workspace.register_action(move |workspace, _: &ToggleDependencyFlow, _window, cx| {
+            if let Some(graph) = workspace
+                .active_item(cx)
+                .and_then(|item| item.act_as::<GraphView>(cx))
+            {
+                graph.update(cx, |view, cx| {
+                    view.layout_options.dependency_flow = match view.layout_options.dependency_flow {
+                        TerraformDependencyFlow::DependenciesAtTop => {
+                            TerraformDependencyFlow::DependentsAtTop
+                        }
+                        TerraformDependencyFlow::DependentsAtTop => {
+                            TerraformDependencyFlow::DependenciesAtTop
+                        }
+                    };
+                    let _ = save_layout_options(view.layout_options);
+                    view.apply_layout_from_cached_dot(cx);
+                    cx.notify();
+                });
+            }
+        });
     }
 
     fn find_existing_graph_item_idx(
@@ -176,6 +220,8 @@ impl GraphView {
             pending_fit_view: false,
             last_container: None,
             last_error: None,
+            layout_options: load_layout_options(),
+            last_dot: None,
             _subscription: subscription,
         };
 
@@ -226,22 +272,25 @@ impl GraphView {
                     }
 
                     match result {
-                        Ok(dot) => match parse_dot_to_digraph(&dot)
-                            .and_then(|parsed| layout_flow_graph(&parsed.graph))
-                        {
-                            Ok(model) => {
-                                view.flow_state.update(cx, |state, _| {
-                                    configure_flow_state_for_fit(state);
-                                    state.set_nodes(model.nodes);
-                                    state.set_edges(model.edges);
-                                });
-                                view.last_error = None;
-                                view.pending_fit_view = true;
+                        Ok(dot) => {
+                            view.last_dot = Some(dot.clone());
+                            match parse_dot_to_digraph(&dot).and_then(|parsed| {
+                                layout_flow_graph_with_options(&parsed.graph, view.layout_options)
+                            }) {
+                                Ok(model) => {
+                                    view.flow_state.update(cx, |state, _| {
+                                        configure_flow_state_for_fit(state);
+                                        state.set_nodes(model.nodes);
+                                        state.set_edges(model.edges);
+                                    });
+                                    view.last_error = None;
+                                    view.pending_fit_view = true;
+                                }
+                                Err(error) => {
+                                    view.last_error = Some(error.to_string().into());
+                                }
                             }
-                            Err(error) => {
-                                view.last_error = Some(error.to_string().into());
-                            }
-                        },
+                        }
                         Err(error) => {
                             view.last_error = Some(error.to_string().into());
                         }
@@ -251,6 +300,28 @@ impl GraphView {
                 })
                 .ok();
         }));
+    }
+
+    fn apply_layout_from_cached_dot(&mut self, cx: &mut Context<Self>) {
+        let Some(dot) = self.last_dot.clone() else {
+            return;
+        };
+        match parse_dot_to_digraph(&dot).and_then(|parsed| {
+            layout_flow_graph_with_options(&parsed.graph, self.layout_options)
+        }) {
+            Ok(model) => {
+                self.flow_state.update(cx, |state, _| {
+                    configure_flow_state_for_fit(state);
+                    state.set_nodes(model.nodes);
+                    state.set_edges(model.edges);
+                });
+                self.pending_fit_view = true;
+                self.last_error = None;
+            }
+            Err(error) => {
+                self.last_error = Some(error.to_string().into());
+            }
+        }
     }
 }
 
@@ -356,6 +427,32 @@ impl Render for GraphView {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(|this: &mut GraphView, _: &RefreshGraph, window, cx| {
                 this.refresh(cx);
+                cx.notify();
+                let handle = this.focus_handle.clone();
+                handle.focus(window, cx);
+            }))
+            .on_action(cx.listener(|this: &mut GraphView, _: &ToggleLayoutDirection, window, cx| {
+                this.layout_options.direction = match this.layout_options.direction {
+                    TerraformLayoutDirection::Tb => TerraformLayoutDirection::Lr,
+                    TerraformLayoutDirection::Lr => TerraformLayoutDirection::Tb,
+                };
+                let _ = save_layout_options(this.layout_options);
+                this.apply_layout_from_cached_dot(cx);
+                cx.notify();
+                let handle = this.focus_handle.clone();
+                handle.focus(window, cx);
+            }))
+            .on_action(cx.listener(|this: &mut GraphView, _: &ToggleDependencyFlow, window, cx| {
+                this.layout_options.dependency_flow = match this.layout_options.dependency_flow {
+                    TerraformDependencyFlow::DependenciesAtTop => {
+                        TerraformDependencyFlow::DependentsAtTop
+                    }
+                    TerraformDependencyFlow::DependentsAtTop => {
+                        TerraformDependencyFlow::DependenciesAtTop
+                    }
+                };
+                let _ = save_layout_options(this.layout_options);
+                this.apply_layout_from_cached_dot(cx);
                 cx.notify();
                 let handle = this.focus_handle.clone();
                 handle.focus(window, cx);

@@ -17,9 +17,12 @@ editor = ["dep:editor", "dep:project", "dep:workspace", "dep:ui", "dep:zed_actio
 
 [dependencies]
 anyhow.workspace = true
+dirs.workspace = true
 gpui.workspace = true
 gpui_flow = { workspace = true }
 petgraph.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 util.workspace = true
 
 editor = { workspace = true, optional = true }

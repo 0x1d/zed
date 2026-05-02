@@ -7977,12 +7977,15 @@ name = "graph_view"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "editor",
  "gpui",
  "gpui_flow",
  "gpui_platform",
  "petgraph",
  "project",
+ "serde",
+ "serde_json",
  "ui",
  "util",
  "workspace",

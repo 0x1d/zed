@@ -19,12 +19,14 @@ use std::path::PathBuf;
 use gpui::{
     App, Bounds, Context, Entity, FocusHandle, Focusable, ParentElement as _, Render, SharedString,
     Styled as _, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    MouseButton,
 };
 use gpui_flow::{BackgroundPattern, FlowGraph, FlowState};
 use gpui_platform::application;
 use graph_view::{
-    configure_flow_state_for_fit, flow_graph_node_renderer, layout_flow_graph, parse_dot_to_digraph,
-    run_terraform_graph,
+    configure_flow_state_for_fit, flow_graph_node_renderer, layout_flow_graph_with_options,
+    load_layout_options, parse_dot_to_digraph, run_terraform_graph, save_layout_options,
+    TerraformDependencyFlow, TerraformLayoutDirection, TerraformLayoutOptions,
 };
 
 const FLOW_BG: u32 = 0xf8f8f8;
@@ -42,6 +44,8 @@ struct StandaloneGraph {
     flow_graph: Entity<FlowGraph>,
     status_line: SharedString,
     graph_task: Option<gpui::Task<()>>,
+    layout_options: TerraformLayoutOptions,
+    last_dot: Option<String>,
 }
 
 impl StandaloneGraph {
@@ -67,6 +71,8 @@ impl StandaloneGraph {
             flow_graph,
             status_line: SharedString::default(),
             graph_task: None,
+            layout_options: load_layout_options(),
+            last_dot: None,
         };
         view.refresh(cx);
         view
@@ -82,21 +88,29 @@ impl StandaloneGraph {
 
             this.update(cx, |view, cx| {
                 match result {
-                    Ok(dot) => match parse_dot_to_digraph(&dot)
-                        .and_then(|parsed| layout_flow_graph(&parsed.graph))
-                    {
-                        Ok(model) => {
-                            view.flow_state.update(cx, |state, _| {
-                                configure_flow_state_for_fit(state);
-                                state.set_nodes(model.nodes);
-                                state.set_edges(model.edges);
-                            });
-                            view.status_line =
-                                format!("Loaded graph from {} ({})", cwd.display(), dot.lines().count())
-                                    .into();
-                        }
-                        Err(error) => {
-                            view.status_line = format!("Layout/parse error: {error:#}").into();
+                    Ok(dot) => {
+                        view.last_dot = Some(dot.clone());
+                        match parse_dot_to_digraph(&dot).and_then(|parsed| {
+                            layout_flow_graph_with_options(&parsed.graph, view.layout_options)
+                        }) {
+                            Ok(model) => {
+                                view.flow_state.update(cx, |state, _| {
+                                    configure_flow_state_for_fit(state);
+                                    state.set_nodes(model.nodes);
+                                    state.set_edges(model.edges);
+                                });
+                                view.status_line = format!(
+                                    "Loaded graph from {} ({}) — {:?} / {:?}",
+                                    cwd.display(),
+                                    dot.lines().count(),
+                                    view.layout_options.direction,
+                                    view.layout_options.dependency_flow
+                                )
+                                .into();
+                            }
+                            Err(error) => {
+                                view.status_line = format!("Layout/parse error: {error:#}").into();
+                            }
                         }
                     },
                     Err(error) => {
@@ -111,6 +125,32 @@ impl StandaloneGraph {
             })
             .ok();
         }));
+    }
+
+    fn relayout(&mut self, cx: &mut Context<Self>) {
+        let Some(dot) = self.last_dot.clone() else {
+            return;
+        };
+        match parse_dot_to_digraph(&dot).and_then(|parsed| {
+            layout_flow_graph_with_options(&parsed.graph, self.layout_options)
+        }) {
+            Ok(model) => {
+                self.flow_state.update(cx, |state, _| {
+                    configure_flow_state_for_fit(state);
+                    state.set_nodes(model.nodes);
+                    state.set_edges(model.edges);
+                });
+                self.status_line = format!(
+                    "Relayout — {:?} / {:?}",
+                    self.layout_options.direction, self.layout_options.dependency_flow
+                )
+                .into();
+            }
+            Err(error) => {
+                self.status_line = format!("Layout error: {error:#}").into();
+            }
+        }
+        cx.notify();
     }
 }
 
@@ -130,6 +170,15 @@ impl Render for StandaloneGraph {
             state.fit_view(80.0, w, h);
         });
 
+        let dir_label = match self.layout_options.direction {
+            TerraformLayoutDirection::Tb => "TB",
+            TerraformLayoutDirection::Lr => "LR",
+        };
+        let flow_label = match self.layout_options.dependency_flow {
+            TerraformDependencyFlow::DependenciesAtTop => "deps↑",
+            TerraformDependencyFlow::DependentsAtTop => "deps↓",
+        };
+
         // FlowGraph must fill the same rectangle used by fit_view (full client area). A flex toolbar
         // above would shift the graph pane without updating viewport math, so edges and nodes
         // misalign ("floating" edges). Overlay the toolbar instead.
@@ -148,6 +197,7 @@ impl Render for StandaloneGraph {
                     .flex()
                     .items_center()
                     .justify_between()
+                    .gap(px(8.0))
                     .px_4()
                     .py_2()
                     .bg(rgb(0x27272a))
@@ -161,9 +211,69 @@ impl Render for StandaloneGraph {
                     )
                     .child(
                         div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(rgb(0x3f3f46))
+                                    .text_color(rgb(0xe4e4e7))
+                                    .cursor_pointer()
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            this.layout_options.direction =
+                                                match this.layout_options.direction {
+                                                    TerraformLayoutDirection::Tb => {
+                                                        TerraformLayoutDirection::Lr
+                                                    }
+                                                    TerraformLayoutDirection::Lr => {
+                                                        TerraformLayoutDirection::Tb
+                                                    }
+                                                };
+                                            let _ = save_layout_options(this.layout_options);
+                                            this.relayout(cx);
+                                        }),
+                                    )
+                                    .child(format!("Direction: {dir_label}")),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(rgb(0x3f3f46))
+                                    .text_color(rgb(0xe4e4e7))
+                                    .cursor_pointer()
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            this.layout_options.dependency_flow =
+                                                match this.layout_options.dependency_flow {
+                                                    TerraformDependencyFlow::DependenciesAtTop => {
+                                                        TerraformDependencyFlow::DependentsAtTop
+                                                    }
+                                                    TerraformDependencyFlow::DependentsAtTop => {
+                                                        TerraformDependencyFlow::DependenciesAtTop
+                                                    }
+                                                };
+                                            let _ = save_layout_options(this.layout_options);
+                                            this.relayout(cx);
+                                        }),
+                                    )
+                                    .child(format!("Flow: {flow_label}")),
+                            ),
+                    )
+                    .child(
+                        div()
                             .text_xs()
                             .text_color(rgb(0xa1a1aa))
-                            .max_w(px(720.))
+                            .max_w(px(420.))
                             .child(self.status_line.clone()),
                     ),
             )

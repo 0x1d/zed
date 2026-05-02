@@ -824,6 +824,10 @@ pub mod preview {
                 OpenPreviewToTheSide,
                 /// Refreshes the Terraform dependency graph.
                 RefreshGraph,
+                /// Cycles graph layout direction (top-bottom ↔ left-right), matching Bench TB/LR.
+                ToggleLayoutDirection,
+                /// Cycles dependency flow (dependencies-at-top ↔ dependents-at-top), matching Bench.
+                ToggleDependencyFlow,
             ]
         );
     }

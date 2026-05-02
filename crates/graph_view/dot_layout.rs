@@ -8,8 +8,72 @@ use petgraph::prelude::*;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 
-const NODE_GAP: f32 = 72.0;
-const VERTICAL_STACK_GAP: f32 = 72.0;
+/// Matches Bench [`DependencyFlow`](https://github.com/0x1d/bench/blob/main/ui/src/lib/terraform-diagram.ts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TerraformDependencyFlow {
+    /// Dependencies rank above dependents (Bench default). Layer ranks use **reversed** DOT edges.
+    #[default]
+    DependenciesAtTop,
+    /// Dependents rank above dependencies. Layer ranks use DOT edges as-is.
+    DependentsAtTop,
+}
+
+/// Matches Bench `direction` passed to Dagre (`TB` | `LR`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TerraformLayoutDirection {
+    #[default]
+    Tb,
+    Lr,
+}
+
+/// Layout options aligned with Bench `getLayoutedInfraElements(..., direction, dependencyFlow)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TerraformLayoutOptions {
+    pub direction: TerraformLayoutDirection,
+    pub dependency_flow: TerraformDependencyFlow,
+}
+
+impl TerraformLayoutOptions {
+    fn handles(&self) -> (HandlePosition, HandlePosition) {
+        match self.direction {
+            TerraformLayoutDirection::Tb => match self.dependency_flow {
+                TerraformDependencyFlow::DependenciesAtTop => {
+                    (HandlePosition::Bottom, HandlePosition::Top)
+                }
+                TerraformDependencyFlow::DependentsAtTop => {
+                    (HandlePosition::Top, HandlePosition::Bottom)
+                }
+            },
+            TerraformLayoutDirection::Lr => match self.dependency_flow {
+                TerraformDependencyFlow::DependenciesAtTop => {
+                    (HandlePosition::Right, HandlePosition::Left)
+                }
+                TerraformDependencyFlow::DependentsAtTop => {
+                    (HandlePosition::Left, HandlePosition::Right)
+                }
+            },
+        }
+    }
+
+    fn primary_gap(&self) -> f32 {
+        match self.direction {
+            TerraformLayoutDirection::Tb => RANKSEP_BENCH,
+            TerraformLayoutDirection::Lr => NODESEP_BENCH,
+        }
+    }
+
+    fn secondary_gap(&self) -> f32 {
+        match self.direction {
+            TerraformLayoutDirection::Tb => NODESEP_BENCH,
+            TerraformLayoutDirection::Lr => RANKSEP_BENCH,
+        }
+    }
+}
+
+/// Bench dagre `ranksep` / vertical gap between layers (`terraform-diagram.ts`).
+const RANKSEP_BENCH: f32 = 100.0;
+/// Bench dagre `nodesep` / gap along a layer (`terraform-diagram.ts`).
+const NODESEP_BENCH: f32 = 80.0;
 const NODE_WIDTH_MIN: f32 = 128.0;
 const NODE_WIDTH_MAX: f32 = 720.0;
 const NODE_PAD_X: f32 = 52.0;
@@ -220,6 +284,19 @@ fn barycenter_up(
     }
 }
 
+fn graph_with_reversed_edges(graph: &Graph<String, ()>) -> Graph<String, ()> {
+    let mut reversed = Graph::new();
+    let mut indices = Vec::with_capacity(graph.node_count());
+    for idx in graph.node_indices() {
+        let label = graph[idx].clone();
+        indices.push(reversed.add_node(label));
+    }
+    for edge in graph.edge_references() {
+        reversed.add_edge(edge.target(), edge.source(), ());
+    }
+    reversed
+}
+
 #[derive(Debug)]
 pub struct FlowGraphModel {
     pub nodes: Vec<FlowNode>,
@@ -227,19 +304,31 @@ pub struct FlowGraphModel {
 }
 
 pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphModel> {
+    layout_flow_graph_with_options(graph, TerraformLayoutOptions::default())
+}
+
+pub fn layout_flow_graph_with_options(
+    graph: &Graph<String, ()>,
+    options: TerraformLayoutOptions,
+) -> anyhow::Result<FlowGraphModel> {
     if !is_dag(graph) {
         anyhow::bail!("Graph contains a cycle");
     }
 
+    let layout_graph = match options.dependency_flow {
+        TerraformDependencyFlow::DependenciesAtTop => graph_with_reversed_edges(graph),
+        TerraformDependencyFlow::DependentsAtTop => graph.clone(),
+    };
+
     let node_count = graph.node_count();
     let mut layer_index: Vec<usize> = vec![0; node_count];
 
-    let topo = petgraph::algo::toposort(graph, None)
+    let topo = petgraph::algo::toposort(&layout_graph, None)
         .map_err(|_| anyhow!("Graph contains a cycle"))?;
 
     for node in topo {
         let mut layer = 0_usize;
-        for edge in graph.edges_directed(node, Incoming) {
+        for edge in layout_graph.edges_directed(node, Incoming) {
             let pred = edge.source().index();
             layer = layer.max(layer_index[pred] + 1);
         }
@@ -259,7 +348,11 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
 
     order_layers_barycenter(graph, &mut layers);
 
-    let mut cum_y = 0.0_f32;
+    let primary_gap = options.primary_gap();
+    let secondary_gap = options.secondary_gap();
+    let (source_handle, target_handle) = options.handles();
+
+    let mut cum_primary = 0.0_f32;
     let mut nodes = Vec::with_capacity(node_count);
     for layer_nodes in &layers {
         let count = layer_nodes.len();
@@ -272,40 +365,67 @@ pub fn layout_flow_graph(graph: &Graph<String, ()>) -> anyhow::Result<FlowGraphM
             .map(|&idx| terraform_label_parts(&terraform_display_label(graph[idx].as_str())))
             .collect();
 
-        let max_layer_height = parts_per_node
+        let sizes: Vec<(f32, f32)> = parts_per_node
             .iter()
-            .map(|parts| estimated_node_size(parts).1)
-            .fold(0.0_f32, f32::max);
+            .map(|parts| estimated_node_size(parts))
+            .collect();
 
-        let max_content_width = parts_per_node
-            .iter()
-            .map(|parts| estimated_node_size(parts).0)
-            .fold(0.0_f32, f32::max);
+        match options.direction {
+            TerraformLayoutDirection::Tb => {
+                let max_layer_height = sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max);
+                let max_cell_width = sizes.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max);
+                let row_width = count as f32 * max_cell_width
+                    + (count.saturating_sub(1) as f32) * secondary_gap;
+                let left_edge = -row_width / 2.0;
+                let y = cum_primary;
+                cum_primary += max_layer_height + primary_gap;
 
-        let cell_width = max_content_width;
-        let row_width =
-            count as f32 * cell_width + (count.saturating_sub(1) as f32) * NODE_GAP;
-        let left_edge = -row_width / 2.0;
+                for (i, &node_idx) in layer_nodes.iter().enumerate() {
+                    let full_id = graph[node_idx].clone();
+                    let parts = parts_per_node[i].clone();
+                    let label = encoded_flow_label(&parts);
+                    let (node_w, node_h) = sizes[i];
+                    let x = left_edge + i as f32 * (max_cell_width + secondary_gap);
 
-        let y = cum_y;
-        cum_y += max_layer_height + VERTICAL_STACK_GAP;
+                    nodes.push(
+                        FlowNode::new(full_id.clone(), x, y)
+                            .label(label)
+                            .size(node_w, node_h)
+                            .handles(vec![
+                                HandleDef::target(target_handle),
+                                HandleDef::source(source_handle),
+                            ]),
+                    );
+                }
+            }
+            TerraformLayoutDirection::Lr => {
+                let max_cell_width = sizes.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max);
+                let column_height = sizes.iter().map(|(_, h)| *h).sum::<f32>()
+                    + (count.saturating_sub(1) as f32) * secondary_gap;
+                let top_edge = -column_height / 2.0;
+                let x = cum_primary;
+                cum_primary += max_cell_width + primary_gap;
 
-        for (i, &node_idx) in layer_nodes.iter().enumerate() {
-            let full_id = graph[node_idx].clone();
-            let parts = parts_per_node[i].clone();
-            let label = encoded_flow_label(&parts);
-            let (node_w, node_h) = estimated_node_size(&parts);
-            let x = left_edge + i as f32 * (cell_width + NODE_GAP);
+                let mut y_cursor = top_edge;
+                for (i, &node_idx) in layer_nodes.iter().enumerate() {
+                    let full_id = graph[node_idx].clone();
+                    let parts = parts_per_node[i].clone();
+                    let label = encoded_flow_label(&parts);
+                    let (node_w, node_h) = sizes[i];
+                    let y = y_cursor;
+                    y_cursor += node_h + secondary_gap;
 
-            nodes.push(
-                FlowNode::new(full_id.clone(), x, y)
-                    .label(label)
-                    .size(node_w, node_h)
-                    .handles(vec![
-                        HandleDef::target(HandlePosition::Top),
-                        HandleDef::source(HandlePosition::Bottom),
-                    ]),
-            );
+                    nodes.push(
+                        FlowNode::new(full_id.clone(), x, y)
+                            .label(label)
+                            .size(node_w, node_h)
+                            .handles(vec![
+                                HandleDef::target(target_handle),
+                                HandleDef::source(source_handle),
+                            ]),
+                    );
+                }
+            }
         }
     }
 
@@ -815,9 +935,33 @@ digraph {
     }
 
     #[test]
-    fn layout_chain_y_increases_downstream() {
+    fn layout_chain_dependencies_at_top_puts_dependencies_above() {
         let parsed = parse_dot_to_digraph(SIMPLE).expect("parse");
         let model = layout_flow_graph(&parsed.graph).expect("layout");
+        let y = |id: &str| {
+            model
+                .nodes
+                .iter()
+                .find(|node| node.id.as_ref() == id)
+                .map(|node| node.position.y)
+                .expect("node id")
+        };
+        // Default matches Bench `dependencies-at-top`: foundational nodes rank above dependents.
+        assert!(y("c") < y("b"), "c (deepest dependency) should be above b");
+        assert!(y("b") < y("a"), "b should be above a");
+    }
+
+    #[test]
+    fn layout_chain_dependents_at_top_matches_old_top_down_order() {
+        let parsed = parse_dot_to_digraph(SIMPLE).expect("parse");
+        let model = layout_flow_graph_with_options(
+            &parsed.graph,
+            TerraformLayoutOptions {
+                direction: TerraformLayoutDirection::Tb,
+                dependency_flow: TerraformDependencyFlow::DependentsAtTop,
+            },
+        )
+        .expect("layout");
         let y = |id: &str| {
             model
                 .nodes
