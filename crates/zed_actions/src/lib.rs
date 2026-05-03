@@ -811,6 +811,26 @@ pub mod preview {
             ]
         );
     }
+
+    pub mod terraform {
+        use gpui::actions;
+
+        actions!(
+            terraform,
+            [
+                /// Opens Terraform dependency graph for the current file.
+                OpenPreview,
+                /// Opens Terraform dependency graph in a split pane.
+                OpenPreviewToTheSide,
+                /// Refreshes the Terraform dependency graph.
+                RefreshGraph,
+                /// Cycles graph layout direction (top-bottom ↔ left-right), matching Bench TB/LR.
+                ToggleLayoutDirection,
+                /// Cycles dependency flow (dependencies-at-top ↔ dependents-at-top), matching Bench.
+                ToggleDependencyFlow,
+            ]
+        );
+    }
 }
 
 pub mod agents_sidebar {

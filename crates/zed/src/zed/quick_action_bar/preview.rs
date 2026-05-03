@@ -2,6 +2,10 @@ use csv_preview::{
     CsvPreviewView, OpenPreview as CsvOpenPreview, OpenPreviewToTheSide as CsvOpenPreviewToTheSide,
     TabularDataPreviewFeatureFlag,
 };
+use graph_view::{
+    GraphView, OpenPreview as TerraformGraphOpenPreview,
+    OpenPreviewToTheSide as TerraformGraphOpenPreviewToTheSide,
+};
 use feature_flags::FeatureFlagAppExt as _;
 use gpui::{AnyElement, Modifiers, WeakEntity};
 use markdown_preview::{
@@ -22,6 +26,7 @@ enum PreviewType {
     Markdown,
     Svg,
     Csv,
+    TerraformGraph,
 }
 
 impl QuickActionBar {
@@ -45,6 +50,9 @@ impl QuickActionBar {
                     && CsvPreviewView::resolve_active_item_as_csv_editor(workspace, cx).is_some()
                 {
                     preview_type = Some(PreviewType::Csv);
+                } else if GraphView::resolve_active_item_as_terraform_editor(workspace, cx).is_some()
+                {
+                    preview_type = Some(PreviewType::TerraformGraph);
                 }
             });
         }
@@ -73,6 +81,13 @@ impl QuickActionBar {
                     Box::new(CsvOpenPreview) as Box<dyn gpui::Action>,
                     Box::new(CsvOpenPreviewToTheSide) as Box<dyn gpui::Action>,
                     &csv_preview::OpenPreview as &dyn gpui::Action,
+                ),
+                PreviewType::TerraformGraph => (
+                    "toggle-terraform-graph-preview",
+                    "Terraform graph",
+                    Box::new(TerraformGraphOpenPreview) as Box<dyn gpui::Action>,
+                    Box::new(TerraformGraphOpenPreviewToTheSide) as Box<dyn gpui::Action>,
+                    &graph_view::OpenPreview as &dyn gpui::Action,
                 ),
             };
 

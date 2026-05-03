@@ -7721,6 +7721,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui_flow"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui_macos",
+]
+
+[[package]]
 name = "gpui_linux"
 version = "0.1.0"
 dependencies = [
@@ -7962,6 +7970,26 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "util",
+]
+
+[[package]]
+name = "graph_view"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "editor",
+ "gpui",
+ "gpui_flow",
+ "gpui_platform",
+ "petgraph",
+ "project",
+ "serde",
+ "serde_json",
+ "ui",
+ "util",
+ "workspace",
+ "zed_actions",
 ]
 
 [[package]]
@@ -22416,6 +22444,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "gpui_tokio",
+ "graph_view",
  "http_client",
  "image",
  "image_viewer",
