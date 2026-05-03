@@ -8,7 +8,7 @@ use gpui::{
     Render, SharedString, Styled as _, Subscription, Task, Window, div, px,
     prelude::FluentBuilder as _,
 };
-use gpui_flow::{BackgroundPattern, FlowGraph, FlowState, NodeId};
+use gpui_flow::{BackgroundPattern, FlowGraph, FlowState};
 use project::Project;
 use ui::prelude::*;
 use workspace::item::{Item, ItemBufferKind, SaveOptions};
@@ -18,10 +18,9 @@ pub use zed_actions::preview::terraform::{
 };
 
 use crate::{
-    configure_flow_state_for_fit, layout_flow_graph_with_options,
-    layout_flow_graph_with_options_and_sizes, load_layout_options, parse_dot_to_digraph,
-    run_terraform_graph, save_layout_options, TerraformDependencyFlow, TerraformLayoutDirection,
-    TerraformLayoutOptions,
+    configure_flow_state_for_fit, layout_flow_graph_with_options_and_sizes, load_layout_options,
+    parse_dot_to_digraph, run_terraform_graph, save_layout_options, TerraformDependencyFlow,
+    TerraformLayoutDirection, TerraformLayoutOptions,
 };
 
 const FLOW_BG: u32 = 0xf8f8f8;
@@ -210,10 +209,8 @@ impl GraphView {
                 this.refresh(cx);
             }
         });
-        let flow_state_subscription = cx.observe(&flow_state, |this, flow_state, cx| {
-            if let Some((node_id, width, height)) = latest_node_size_change(&flow_state, cx) {
-                this.apply_layout_for_measured_node(node_id, width, height, cx);
-            }
+        let flow_state_subscription = cx.observe(&flow_state, |this, _, cx| {
+            this.apply_layout_from_cached_dot(cx);
         });
 
         let mut view = Self {
@@ -326,22 +323,8 @@ impl GraphView {
         }
     }
 
-    fn current_node_sizes(&self, cx: &App) -> HashMap<NodeId, (f32, f32)> {
-        self.flow_state
-            .read(cx)
-            .nodes
-            .iter()
-            .filter_map(|node| {
-                Some((
-                    node.id.clone(),
-                    (node.measured_width?.as_f32(), node.measured_height?.as_f32()),
-                ))
-            })
-            .collect()
-    }
-
     fn layout_cached_dot(&self, dot: &str, cx: &App) -> anyhow::Result<crate::FlowGraphModel> {
-        let measured_sizes = self.current_node_sizes(cx);
+        let measured_sizes = self.flow_state.read(cx).node_sizes();
         parse_dot_to_digraph(dot).and_then(|parsed| {
             layout_flow_graph_with_options_and_sizes(
                 &parsed.graph,
@@ -349,41 +332,6 @@ impl GraphView {
                 &measured_sizes,
             )
         })
-    }
-
-    fn apply_layout_for_measured_node(
-        &mut self,
-        node_id: NodeId,
-        width: f32,
-        height: f32,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(dot) = self.last_dot.clone() else {
-            return;
-        };
-        let mut measured_sizes = self.current_node_sizes(cx);
-        measured_sizes.insert(node_id, (width, height));
-        match parse_dot_to_digraph(&dot).and_then(|parsed| {
-            layout_flow_graph_with_options_and_sizes(
-                &parsed.graph,
-                self.layout_options,
-                &measured_sizes,
-            )
-        }) {
-            Ok(model) => {
-                self.flow_state.update(cx, |state, _| {
-                    configure_flow_state_for_fit(state);
-                    state.set_nodes(model.nodes);
-                    state.set_edges(model.edges);
-                });
-                self.pending_fit_view = true;
-                self.last_error = None;
-            }
-            Err(error) => {
-                self.last_error = Some(error.to_string().into());
-            }
-        }
-        cx.notify();
     }
 }
 
