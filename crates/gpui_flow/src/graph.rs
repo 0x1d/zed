@@ -1,13 +1,24 @@
 use std::collections::HashMap;
 
-use gpui::*;
 use gpui::prelude::FluentBuilder;
+use gpui::*;
 
 use crate::edges;
 use crate::store::FlowState;
 use crate::types::*;
 
 type NodeRendererFn = Box<dyn Fn(&FlowNode, &mut Window, &mut App) -> AnyElement>;
+
+fn renderer_for_node<'a>(
+    node_renderers: &'a HashMap<SharedString, NodeRendererFn>,
+    default_renderer: Option<&'a NodeRendererFn>,
+    node: &FlowNode,
+) -> Option<&'a NodeRendererFn> {
+    node.node_type
+        .as_ref()
+        .and_then(|node_type| node_renderers.get(node_type))
+        .or(default_renderer)
+}
 
 /// The top-level flow graph component.
 ///
@@ -77,10 +88,7 @@ impl FlowGraph {
     }
 
     /// Set the on_connect callback.
-    pub fn on_connect(
-        mut self,
-        callback: impl Fn(&Connection, &mut FlowState) + 'static,
-    ) -> Self {
+    pub fn on_connect(mut self, callback: impl Fn(&Connection, &mut FlowState) + 'static) -> Self {
         self.on_connect = Some(Box::new(callback));
         self
     }
@@ -151,13 +159,10 @@ impl FlowGraph {
         let w_screen = wf * viewport.zoom;
         let h_screen = hf * viewport.zoom;
 
-        // Choose renderer
-        let content = if let Some(node_type) = &node.node_type {
-            if let Some(renderer) = self.node_renderers.get(node_type) {
-                renderer(node, window, cx)
-            } else {
-                self.render_default_node(node, window, cx)
-            }
+        let content = if let Some(renderer) =
+            renderer_for_node(&self.node_renderers, self.default_renderer.as_ref(), node)
+        {
+            renderer(node, window, cx)
         } else {
             self.render_default_node(node, window, cx)
         };
@@ -173,7 +178,15 @@ impl FlowGraph {
 
         // Build handle dot elements (skip if not connecting to reduce overhead)
         let handle_elements = if !node.handles.is_empty() {
-            Self::render_handles(&node.handles, &node.id, &state, is_connecting, snap_node_id, node_bg, node_border)
+            Self::render_handles(
+                &node.handles,
+                &node.id,
+                &state,
+                is_connecting,
+                snap_node_id,
+                node_bg,
+                node_border,
+            )
         } else {
             Vec::new()
         };
@@ -410,11 +423,9 @@ impl FlowGraph {
 
                                     if state.is_valid_connection(&connection) {
                                         state.push_undo();
-                                        let edge_id: SharedString = format!(
-                                            "e{}-{}",
-                                            connection.source, connection.target
-                                        )
-                                        .into();
+                                        let edge_id: SharedString =
+                                            format!("e{}-{}", connection.source, connection.target)
+                                                .into();
                                         state.add_edge_from_connection(&connection, edge_id);
                                     }
                                 }
@@ -500,7 +511,10 @@ impl FlowGraph {
                     while y < bh {
                         let dot_bounds = Bounds::new(
                             Point::new(ox + px(x) - dot_size / 2.0, oy + px(y) - dot_size / 2.0),
-                            Size { width: dot_size, height: dot_size },
+                            Size {
+                                width: dot_size,
+                                height: dot_size,
+                            },
                         );
                         window.paint_quad(gpui::fill(dot_bounds, color));
                         y += spacing;
@@ -514,7 +528,10 @@ impl FlowGraph {
                 while x < bw {
                     let line = Bounds::new(
                         Point::new(ox + px(x), oy),
-                        Size { width: line_w, height: bounds.size.height },
+                        Size {
+                            width: line_w,
+                            height: bounds.size.height,
+                        },
                     );
                     window.paint_quad(gpui::fill(line, color));
                     x += spacing;
@@ -527,7 +544,10 @@ impl FlowGraph {
                 while x < bw {
                     let line = Bounds::new(
                         Point::new(ox + px(x), oy),
-                        Size { width: line_w, height: bounds.size.height },
+                        Size {
+                            width: line_w,
+                            height: bounds.size.height,
+                        },
                     );
                     window.paint_quad(gpui::fill(line, color));
                     x += spacing;
@@ -537,7 +557,10 @@ impl FlowGraph {
                 while y < bh {
                     let line = Bounds::new(
                         Point::new(ox, oy + px(y)),
-                        Size { width: bounds.size.width, height: line_w },
+                        Size {
+                            width: bounds.size.width,
+                            height: line_w,
+                        },
                     );
                     window.paint_quad(gpui::fill(line, color));
                     y += spacing;
@@ -547,7 +570,11 @@ impl FlowGraph {
     }
 
     /// Paint a selection box rectangle (coordinates relative to the flow canvas).
-    fn paint_selection_box(sel: &SelectionBox, window: &mut Window, canvas_bounds: &Bounds<Pixels>) {
+    fn paint_selection_box(
+        sel: &SelectionBox,
+        window: &mut Window,
+        canvas_bounds: &Bounds<Pixels>,
+    ) {
         let ox = canvas_bounds.origin.x.as_f32();
         let oy = canvas_bounds.origin.y.as_f32();
         let x = sel.start.0.min(sel.current.0) - ox;
@@ -573,21 +600,49 @@ impl FlowGraph {
         // Blue border
         let border_color: Background = gpui::rgb(0x3b82f6).into();
         // Top
-        let top = Bounds::new(Point::new(px(x), px(y)), Size { width: px(w), height: px(1.0) });
+        let top = Bounds::new(
+            Point::new(px(x), px(y)),
+            Size {
+                width: px(w),
+                height: px(1.0),
+            },
+        );
         window.paint_quad(fill(top, border_color.clone()));
         // Bottom
-        let bottom = Bounds::new(Point::new(px(x), px(y + h - 1.0)), Size { width: px(w), height: px(1.0) });
+        let bottom = Bounds::new(
+            Point::new(px(x), px(y + h - 1.0)),
+            Size {
+                width: px(w),
+                height: px(1.0),
+            },
+        );
         window.paint_quad(fill(bottom, border_color.clone()));
         // Left
-        let left = Bounds::new(Point::new(px(x), px(y)), Size { width: px(1.0), height: px(h) });
+        let left = Bounds::new(
+            Point::new(px(x), px(y)),
+            Size {
+                width: px(1.0),
+                height: px(h),
+            },
+        );
         window.paint_quad(fill(left, border_color.clone()));
         // Right
-        let right = Bounds::new(Point::new(px(x + w - 1.0), px(y)), Size { width: px(1.0), height: px(h) });
+        let right = Bounds::new(
+            Point::new(px(x + w - 1.0), px(y)),
+            Size {
+                width: px(1.0),
+                height: px(h),
+            },
+        );
         window.paint_quad(fill(right, border_color));
     }
 
     /// Paint a draft connection line from handle to mouse cursor (canvas-relative coordinates).
-    fn paint_connection_draft(draft: &ConnectionDraft, window: &mut Window, canvas_bounds: &Bounds<Pixels>) {
+    fn paint_connection_draft(
+        draft: &ConnectionDraft,
+        window: &mut Window,
+        canvas_bounds: &Bounds<Pixels>,
+    ) {
         let ox = canvas_bounds.origin.x.as_f32();
         let oy = canvas_bounds.origin.y.as_f32();
         let color: Background = gpui::rgba(0x3b82f680).into();
@@ -634,7 +689,16 @@ impl Render for FlowGraph {
         let cull_margin = 200.0;
 
         // Read state, extract what we need, then release the borrow
-        let (viewport, is_panning, is_connecting, snap_node_id, connecting_draft, selection_box, visible_nodes, edge_label_elements) = {
+        let (
+            viewport,
+            is_panning,
+            is_connecting,
+            snap_node_id,
+            connecting_draft,
+            selection_box,
+            visible_nodes,
+            edge_label_elements,
+        ) = {
             let state = self.state.read(cx);
             let viewport = state.viewport;
             let is_panning = state.pan_drag.is_some();
@@ -656,8 +720,10 @@ impl Render for FlowGraph {
                 let (sx, sy) = viewport.flow_to_screen(node.position);
                 let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0) * viewport.zoom;
                 let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(50.0) * viewport.zoom;
-                if sx + nw < -cull_margin || sx > win_w + cull_margin
-                    || sy + nh < -cull_margin || sy > win_h + cull_margin
+                if sx + nw < -cull_margin
+                    || sx > win_w + cull_margin
+                    || sy + nh < -cull_margin
+                    || sy > win_h + cull_margin
                 {
                     continue;
                 }
@@ -698,13 +764,30 @@ impl Render for FlowGraph {
                 }
             }
 
-            (viewport, is_panning, is_connecting, snap_node_id, connecting_draft, selection_box, visible_nodes, edge_label_elements)
+            (
+                viewport,
+                is_panning,
+                is_connecting,
+                snap_node_id,
+                connecting_draft,
+                selection_box,
+                visible_nodes,
+                edge_label_elements,
+            )
         }; // state borrow ends here
 
         // Render only visible nodes
         let mut node_elements: Vec<AnyElement> = Vec::with_capacity(visible_nodes.len());
         for node in &visible_nodes {
-            node_elements.push(self.render_node(node, &viewport, is_connecting, snap_node_id.as_ref(), entity_id, window, cx));
+            node_elements.push(self.render_node(
+                node,
+                &viewport,
+                is_connecting,
+                snap_node_id.as_ref(),
+                entity_id,
+                window,
+                cx,
+            ));
         }
 
         let state_for_canvas = self.state.clone();
@@ -738,7 +821,13 @@ impl Render for FlowGraph {
                 canvas(
                     |_bounds, _window, _cx| {},
                     move |bounds, _: (), window, cx| {
-                        Self::paint_grid(&bounds, &viewport_for_canvas, grid_color, bg_pattern, window);
+                        Self::paint_grid(
+                            &bounds,
+                            &viewport_for_canvas,
+                            grid_color,
+                            bg_pattern,
+                            window,
+                        );
                         let state = state_for_canvas.read(cx);
                         edges::paint_edges(state, window, &bounds);
 
@@ -852,8 +941,10 @@ impl Render for FlowGraph {
                                     continue;
                                 }
                                 let (nx, ny) = viewport.flow_to_screen(node.position);
-                                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0) * viewport.zoom;
-                                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(40.0) * viewport.zoom;
+                                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0)
+                                    * viewport.zoom;
+                                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(40.0)
+                                    * viewport.zoom;
                                 // AABB intersection
                                 let intersects = nx < ex && nx + nw > sx && ny < ey && ny + nh > sy;
                                 node.selected = intersects;
@@ -991,7 +1082,10 @@ impl Render for FlowGraph {
                     let graph_focused = focus.is_focused(window);
 
                     // Undo: Cmd+Z (always allowed)
-                    if key == "z" && event.keystroke.modifiers.platform && !event.keystroke.modifiers.shift {
+                    if key == "z"
+                        && event.keystroke.modifiers.platform
+                        && !event.keystroke.modifiers.shift
+                    {
                         state_for_key.update(cx, |state, _| {
                             state.undo();
                         });
@@ -999,7 +1093,10 @@ impl Render for FlowGraph {
                         return;
                     }
                     // Redo: Cmd+Shift+Z
-                    if key == "z" && event.keystroke.modifiers.platform && event.keystroke.modifiers.shift {
+                    if key == "z"
+                        && event.keystroke.modifiers.platform
+                        && event.keystroke.modifiers.shift
+                    {
                         state_for_key.update(cx, |state, _| {
                             state.redo();
                         });
@@ -1060,10 +1157,8 @@ impl Render for FlowGraph {
                                 (old_zoom + zoom_delta).clamp(state.min_zoom, state.max_zoom);
                             let mx = mouse_pos.x.as_f32();
                             let my = mouse_pos.y.as_f32();
-                            state.viewport.x =
-                                mx - (mx - state.viewport.x) * (new_zoom / old_zoom);
-                            state.viewport.y =
-                                my - (my - state.viewport.y) * (new_zoom / old_zoom);
+                            state.viewport.x = mx - (mx - state.viewport.x) * (new_zoom / old_zoom);
+                            state.viewport.y = my - (my - state.viewport.y) * (new_zoom / old_zoom);
                             state.viewport.zoom = new_zoom;
                         });
                     } else {
@@ -1088,14 +1183,35 @@ impl Render for FlowGraph {
                             (old_zoom * (1.0 + zoom_delta)).clamp(state.min_zoom, state.max_zoom);
                         let mx = mouse_pos.x.as_f32();
                         let my = mouse_pos.y.as_f32();
-                        state.viewport.x =
-                            mx - (mx - state.viewport.x) * (new_zoom / old_zoom);
-                        state.viewport.y =
-                            my - (my - state.viewport.y) * (new_zoom / old_zoom);
+                        state.viewport.x = mx - (mx - state.viewport.x) * (new_zoom / old_zoom);
+                        state.viewport.y = my - (my - state.viewport.y) * (new_zoom / old_zoom);
                         state.viewport.zoom = new_zoom;
                     });
                     cx.notify(entity_id);
                 }
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use gpui::{AnyElement, App, IntoElement, Window, div};
+
+    use super::{NodeRendererFn, renderer_for_node};
+    use crate::FlowNode;
+
+    fn test_renderer(_: &FlowNode, _: &mut Window, _: &mut App) -> AnyElement {
+        div().into_any_element()
+    }
+
+    #[test]
+    fn uses_default_renderer_when_node_type_has_no_specific_renderer() {
+        let node_renderers = HashMap::default();
+        let default_renderer: Option<NodeRendererFn> = Some(Box::new(test_renderer));
+        let node = FlowNode::new("node", 0.0, 0.0);
+
+        assert!(renderer_for_node(&node_renderers, default_renderer.as_ref(), &node).is_some());
     }
 }
