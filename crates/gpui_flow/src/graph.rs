@@ -178,6 +178,10 @@ impl FlowGraph {
         let node_bg = self.node_bg_color;
         let node_border = self.node_border_color;
         let element_id: ElementId = ElementId::Name(node.id.clone());
+        let dimmed = {
+            let state = self.state.read(cx);
+            state.has_selected_nodes() && !state.node_is_selected_or_connected(&node.id)
+        };
 
         // Build handle dot elements (skip if not connecting to reduce overhead)
         let handle_elements = if !node.handles.is_empty() {
@@ -241,6 +245,7 @@ impl FlowGraph {
             .when(selected, |el: Stateful<Div>| {
                 el.border_2().border_color(gpui::rgb(0x3b82f6))
             })
+            .when(dimmed, |el| el.opacity(0.28))
             .on_mouse_down(MouseButton::Left, {
                 let node_id = node_id.clone();
                 let state = state.clone();

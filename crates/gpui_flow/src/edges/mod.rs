@@ -28,6 +28,9 @@ pub fn paint_edges(state: &FlowState, window: &mut Window, canvas_bounds: &Bound
     let margin = 100.0;
     let edge_color: Background = gpui::rgb(0xb1b1b7).into();
     let selected_color: Background = gpui::rgb(0x555555).into();
+    let dimmed_color: Background = gpui::rgb(0xd4d4d8).into();
+    let highlighted_color: Background = gpui::rgb(0x2563eb).into();
+    let has_selected_nodes = state.has_selected_nodes();
 
     for edge in &state.edges {
         if edge.hidden {
@@ -65,14 +68,23 @@ pub fn paint_edges(state: &FlowState, window: &mut Window, canvas_bounds: &Bound
         let tx = tx_win - ox;
         let ty = ty_win - oy;
 
-        let color: Background = if edge.selected {
+        let edge_connected_to_selection = state.edge_is_connected_to_selection(edge);
+        let color: Background = if has_selected_nodes && edge_connected_to_selection {
+            highlighted_color.clone()
+        } else if has_selected_nodes {
+            dimmed_color.clone()
+        } else if edge.selected {
             selected_color.clone()
         } else if let Some(c) = edge.color {
             gpui::rgb(c).into()
         } else {
             edge_color.clone()
         };
-        let stroke = edge.stroke_width.unwrap_or(2.0);
+        let stroke = if has_selected_nodes && edge_connected_to_selection {
+            edge.stroke_width.unwrap_or(2.0) + 1.0
+        } else {
+            edge.stroke_width.unwrap_or(2.0)
+        };
 
         match edge.edge_type {
             EdgeType::Bezier { curvature } => {

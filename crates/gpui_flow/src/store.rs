@@ -162,6 +162,29 @@ impl FlowState {
             .collect()
     }
 
+    pub fn has_selected_nodes(&self) -> bool {
+        self.nodes.iter().any(|node| node.selected)
+    }
+
+    pub fn node_is_selected_or_connected(&self, node_id: &NodeId) -> bool {
+        self.nodes
+            .iter()
+            .any(|node| node.selected && node.id == *node_id)
+            || self.edges.iter().any(|edge| {
+                let edge_touches_selected_node = self
+                    .nodes
+                    .iter()
+                    .any(|node| node.selected && (edge.source == node.id || edge.target == node.id));
+                edge_touches_selected_node && (edge.source == *node_id || edge.target == *node_id)
+            })
+    }
+
+    pub fn edge_is_connected_to_selection(&self, edge: &FlowEdge) -> bool {
+        self.nodes
+            .iter()
+            .any(|node| node.selected && (edge.source == node.id || edge.target == node.id))
+    }
+
     /// Apply a batch of node changes.
     pub fn apply_node_changes(&mut self, changes: &[NodeChange]) {
         let mut needs_rebuild = false;
@@ -460,5 +483,38 @@ impl FlowState {
             edge.target_handle = Some(th.clone());
         }
         self.edges.push(edge);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_node_highlights_direct_connections() {
+        let mut state = FlowState::new(
+            vec![
+                FlowNode::new("a", 0.0, 0.0),
+                FlowNode::new("b", 0.0, 0.0),
+                FlowNode::new("c", 0.0, 0.0),
+                FlowNode::new("d", 0.0, 0.0),
+            ],
+            vec![
+                FlowEdge::new("ab", "a", "b"),
+                FlowEdge::new("ca", "c", "a"),
+                FlowEdge::new("bd", "b", "d"),
+            ],
+        );
+        state.get_node_mut(&"a".into()).expect("node a").selected = true;
+
+        assert!(state.has_selected_nodes());
+        assert!(state.node_is_selected_or_connected(&"a".into()));
+        assert!(state.node_is_selected_or_connected(&"b".into()));
+        assert!(state.node_is_selected_or_connected(&"c".into()));
+        assert!(!state.node_is_selected_or_connected(&"d".into()));
+
+        assert!(state.edge_is_connected_to_selection(&state.edges[0]));
+        assert!(state.edge_is_connected_to_selection(&state.edges[1]));
+        assert!(!state.edge_is_connected_to_selection(&state.edges[2]));
     }
 }
