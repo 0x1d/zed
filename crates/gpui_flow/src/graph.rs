@@ -203,10 +203,11 @@ impl FlowGraph {
                 let w = gpui::px(w_flow);
                 let h = gpui::px(h_flow);
                 if prev_w != Some(w) || prev_h != Some(h) {
-                    measure_state.update(cx, |state, _| {
+                    measure_state.update(cx, |state, cx| {
                         if let Some(node) = state.get_node_mut(&measure_node_id) {
                             node.measured_width = Some(w);
                             node.measured_height = Some(h);
+                            cx.notify();
                         }
                     });
                 }

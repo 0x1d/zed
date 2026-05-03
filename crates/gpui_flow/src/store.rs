@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use gpui::{Bounds, Pixels, SharedString};
@@ -147,6 +148,18 @@ impl FlowState {
     /// Set all edges.
     pub fn set_edges(&mut self, edges: Vec<FlowEdge>) {
         self.edges = edges;
+    }
+
+    pub fn node_sizes(&self) -> BTreeMap<String, (f32, f32)> {
+        self.nodes
+            .iter()
+            .filter_map(|node| {
+                Some((
+                    node.id.to_string(),
+                    (node.measured_width?.as_f32(), node.measured_height?.as_f32()),
+                ))
+            })
+            .collect()
     }
 
     /// Apply a batch of node changes.

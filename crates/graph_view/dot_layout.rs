@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{anyhow, Context};
 use gpui_flow::{FlowEdge, FlowNode, HandleDef, HandlePosition};
@@ -315,6 +315,14 @@ pub fn layout_flow_graph_with_options(
     graph: &Graph<String, ()>,
     options: TerraformLayoutOptions,
 ) -> anyhow::Result<FlowGraphModel> {
+    layout_flow_graph_with_options_and_sizes(graph, options, &BTreeMap::new())
+}
+
+pub fn layout_flow_graph_with_options_and_sizes(
+    graph: &Graph<String, ()>,
+    options: TerraformLayoutOptions,
+    node_sizes: &BTreeMap<String, (f32, f32)>,
+) -> anyhow::Result<FlowGraphModel> {
     if !is_dag(graph) {
         anyhow::bail!("Graph contains a cycle");
     }
@@ -369,9 +377,15 @@ pub fn layout_flow_graph_with_options(
             .map(|&idx| terraform_label_parts(&terraform_display_label(graph[idx].as_str())))
             .collect();
 
-        let sizes: Vec<(f32, f32)> = parts_per_node
+        let sizes: Vec<(f32, f32)> = layer_nodes
             .iter()
-            .map(|parts| estimated_node_size(parts))
+            .zip(parts_per_node.iter())
+            .map(|(&idx, parts)| {
+                node_sizes
+                    .get(graph[idx].as_str())
+                    .copied()
+                    .unwrap_or_else(|| estimated_node_size(parts))
+            })
             .collect();
 
         match options.direction {
@@ -939,6 +953,39 @@ digraph {
         assert!(
             (y_left - y_right).abs() < 0.01,
             "same layer must share y: left={y_left} right={y_right}"
+        );
+    }
+
+    #[test]
+    fn layout_uses_measured_node_sizes_for_row_packing() {
+        let dot = r#"
+digraph {
+  "left" -> "down";
+  "right" -> "down";
+}
+"#;
+        let parsed = parse_dot_to_digraph(dot).expect("parse");
+        let original = layout_flow_graph(&parsed.graph).expect("layout");
+        let measured_sizes = BTreeMap::from([("left".to_string(), (300.0, 44.0))]);
+        let resized = layout_flow_graph_with_options_and_sizes(
+            &parsed.graph,
+            TerraformLayoutOptions::default(),
+            &measured_sizes,
+        )
+        .expect("layout");
+
+        let node_x = |model: &FlowGraphModel, id: &str| {
+            model
+                .nodes
+                .iter()
+                .find(|node| node.id.as_ref() == id)
+                .map(|node| node.position.x)
+                .expect("node id")
+        };
+
+        assert!(
+            node_x(&resized, "right") > node_x(&original, "right"),
+            "right sibling should move when left measured width grows"
         );
     }
 

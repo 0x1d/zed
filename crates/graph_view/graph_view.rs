@@ -16,10 +16,10 @@ pub use editor::{
 };
 
 pub use dot_layout::{
-    is_dag, layout_flow_graph, layout_flow_graph_with_options, parse_dot_to_digraph,
-    terraform_display_label, terraform_label_parts, FlowGraphModel, ParsedDot,
-    TerraformDependencyFlow, TerraformLabelParts, TerraformLayoutDirection,
-    TerraformLayoutOptions,
+    FlowGraphModel, ParsedDot, TerraformDependencyFlow, TerraformLabelParts,
+    TerraformLayoutDirection, TerraformLayoutOptions, is_dag, layout_flow_graph,
+    layout_flow_graph_with_options, layout_flow_graph_with_options_and_sizes,
+    parse_dot_to_digraph, terraform_display_label, terraform_label_parts,
 };
 pub use layout_settings::{load_layout_options, save_layout_options};
 pub use node_ui::flow_graph_node_renderer;

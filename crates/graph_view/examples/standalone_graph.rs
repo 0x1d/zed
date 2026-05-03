@@ -24,8 +24,9 @@ use gpui::{
 use gpui_flow::{BackgroundPattern, FlowGraph, FlowState};
 use gpui_platform::application;
 use graph_view::{
-    configure_flow_state_for_fit, flow_graph_node_renderer, layout_flow_graph_with_options,
-    load_layout_options, parse_dot_to_digraph, run_terraform_graph, save_layout_options,
+    configure_flow_state_for_fit, flow_graph_node_renderer,
+    layout_flow_graph_with_options_and_sizes, load_layout_options, parse_dot_to_digraph,
+    run_terraform_graph, save_layout_options,
     TerraformDependencyFlow, TerraformLayoutDirection, TerraformLayoutOptions,
 };
 
@@ -46,6 +47,7 @@ struct StandaloneGraph {
     graph_task: Option<gpui::Task<()>>,
     layout_options: TerraformLayoutOptions,
     last_dot: Option<String>,
+    _flow_graph_subscription: gpui::Subscription,
 }
 
 impl StandaloneGraph {
@@ -64,6 +66,9 @@ impl StandaloneGraph {
                 .node_border_color(FLOW_NODE_BORDER)
                 .default_renderer(flow_graph_node_renderer)
         });
+        let flow_graph_subscription = cx.observe(&flow_state, |this, _, cx| {
+            this.relayout(cx);
+        });
 
         let mut view = Self {
             focus_handle: cx.focus_handle(),
@@ -73,6 +78,7 @@ impl StandaloneGraph {
             graph_task: None,
             layout_options: load_layout_options(),
             last_dot: None,
+            _flow_graph_subscription: flow_graph_subscription,
         };
         view.refresh(cx);
         view
@@ -90,9 +96,7 @@ impl StandaloneGraph {
                 match result {
                     Ok(dot) => {
                         view.last_dot = Some(dot.clone());
-                        match parse_dot_to_digraph(&dot).and_then(|parsed| {
-                            layout_flow_graph_with_options(&parsed.graph, view.layout_options)
-                        }) {
+                        match view.layout_cached_dot(&dot, cx) {
                             Ok(model) => {
                                 view.flow_state.update(cx, |state, _| {
                                     configure_flow_state_for_fit(state);
@@ -131,9 +135,7 @@ impl StandaloneGraph {
         let Some(dot) = self.last_dot.clone() else {
             return;
         };
-        match parse_dot_to_digraph(&dot).and_then(|parsed| {
-            layout_flow_graph_with_options(&parsed.graph, self.layout_options)
-        }) {
+        match self.layout_cached_dot(&dot, cx) {
             Ok(model) => {
                 self.flow_state.update(cx, |state, _| {
                     configure_flow_state_for_fit(state);
@@ -151,6 +153,21 @@ impl StandaloneGraph {
             }
         }
         cx.notify();
+    }
+
+    fn layout_cached_dot(
+        &self,
+        dot: &str,
+        cx: &App,
+    ) -> anyhow::Result<graph_view::FlowGraphModel> {
+        parse_dot_to_digraph(dot).and_then(|parsed| {
+            let measured_sizes = self.flow_state.read(cx).node_sizes();
+            layout_flow_graph_with_options_and_sizes(
+                &parsed.graph,
+                self.layout_options,
+                &measured_sizes,
+            )
+        })
     }
 }
 
