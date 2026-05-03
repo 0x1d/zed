@@ -7,7 +7,7 @@ use gpui_flow::FlowNode;
 /// Resource type line — subdued caption (Bench-like mono hint on second line).
 const TYPE_COLOR: u32 = 0x71717a;
 /// Resource name — primary emphasis.
-const NAME_COLOR: u32 = 0x171717;
+const NAME_COLOR: u32 = 0x000000;
 
 /// Two-line Terraform labels: `resource_type` then `name` (encoded as `type\\nname` on [`FlowNode::label`]).
 pub fn flow_graph_node_renderer(
@@ -63,7 +63,7 @@ pub fn flow_graph_node_renderer(
                 div()
                     .text_sm()
                     .line_height(relative(1.1))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::BOLD)
                     .text_color(gpui::rgb(NAME_COLOR))
                     .text_center()
                     .min_w_0()
